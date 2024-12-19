@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "h2hdb-komga"
+version = "0.0.1"
+description = ""
+readme = "README.md"
+authors = [{ name = "Kuan-Lun Wang" }]
+license = { text = "GNU Affero General Public License v3" }
+dependencies = ["h2hdb>=0.7.0.1", "requests>=2.32.3,<3.0.0"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/Kuan-Lun/h2hdb-komga"
+Source = "https://github.com/Kuan-Lun/h2hdb-komga"
+Tracker = "https://github.com/Kuan-Lun/h2hdb-komga/issues"
+
+[tool.setuptools]
+packages = ["h2hdb_komga"]
+package-dir = { h2hdb_komga = "src/h2hdb_komga" }
+package-data = { h2hdb_komga = ["py.typed"] }
