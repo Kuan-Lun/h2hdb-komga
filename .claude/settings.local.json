@@ -1,0 +1,64 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat > *)",
+      "Bash(docker info)",
+      "Bash(docker ps)",
+      "Bash(docker:*)",
+      "Bash(echo:*)",
+      "Bash(find:*)",
+      "Bash(git -C * diff:*)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git diff:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(tail:*)",
+      "Bash(tree:*)",
+      "Bash(uv add *)",
+      "Bash(uv run black *)",
+      "Bash(uv run mypy *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv:*)",
+      "Bash(xargs cat)",
+      "Edit(**/*)",
+      "Read(**/*)",
+      "Write(**/*)",
+      "Bash(uv run *)",
+      "Bash(uv run python -c ' *)",
+      "Bash(cat -A *)",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(git -C * show *)",
+      "Bash(python3 -)",
+      "Bash(docker info *)",
+      "Bash(git log *)",
+      "Bash(python3 -c ＊)",
+      "Bash(bash scripts/rebuild-env.sh)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/private/tmp"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/hooks/finalize-python.sh"
+          },
+          {
+            "type": "command",
+            "command": "scripts/hooks/finalize-markdown.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
