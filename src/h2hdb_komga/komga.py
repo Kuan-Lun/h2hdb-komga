@@ -63,29 +63,6 @@ def get_series_ids(
 
 
 @retry_request
-def get_books_ids_in_series_id(
-    series_id: str,
-    base_url: str,
-    api_username: str,
-    api_password: str,
-) -> set[str]:
-    books_informations = list[tuple[str, str]]()
-    page_num = 0
-    while True:
-        url = f"{base_url}/api/v1/series/{series_id}/books?page={page_num}&size=1000"
-        response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
-        response.raise_for_status()
-        response_json = response.json()
-        if len(response_json["content"]) == 0:
-            break
-        for book in response_json["content"]:
-            books_informations.append((book["id"], book["fileLastModified"]))
-        page_num += 1
-    books_ids = {b[0] for b in sorted(books_informations, key=lambda x: x[1])}
-    return books_ids
-
-
-@retry_request
 def get_books_ids_in_library_id(
     library_id: str,
     base_url: str,
@@ -200,37 +177,6 @@ def analyze_library(
     response.raise_for_status()
 
 
-@retry_request
-def get_series(
-    series_id: str,
-    base_url: str,
-    api_username: str,
-    api_password: str,
-) -> dict[str, Any]:
-    url = f"{base_url}/api/v1/series/{series_id}"
-    response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
-    response.raise_for_status()
-    series: dict[str, Any] = response.json()
-    return series
-
-
-@retry_request
-def patch_series_metadata(
-    metadata: dict[str, Any],
-    series_id: str,
-    base_url: str,
-    api_username: str,
-    api_password: str,
-) -> None:
-    url = f"{base_url}/api/v1/series/{series_id}/metadata"
-    response = requests.patch(
-        url,
-        json=metadata,
-        auth=HTTPBasicAuth(api_username, api_password),
-    )
-    response.raise_for_status()
-
-
 def get_h2hdb_metadata_by_gallery_names(
     h2hconfig: H2HDBConfig, gallery_names: list[str]
 ) -> dict[str, dict[str, Any]]:
@@ -247,56 +193,6 @@ def get_h2hdb_metadata_by_gallery_names(
             except KeyError as e:
                 names.remove(e.args[0])
     return {}
-
-
-def update_komga_series_metadata(
-    komgaconfig: KomgaConfig, h2hconfig: H2HDBConfig, series_id: str
-) -> None:
-    base_url = komgaconfig.base_url
-    api_username = komgaconfig.api_username
-    api_password = komgaconfig.api_password
-
-    series = get_series(series_id, base_url, api_username, api_password)
-
-    if series["oneshot"]:
-        # A oneshot series wraps exactly one book, and Komga gives the
-        # series the same underlying file name as that book — so the
-        # gallery name can be read straight off the series, skipping the
-        # books-in-series + per-book GET round trips entirely.
-        gallery_names = [series["name"]]
-    else:
-        books_ids = get_books_ids_in_series_id(
-            series_id, base_url, api_username, api_password
-        )
-        komga_metadata_by_book_id: dict[str, dict[str, Any]] = {}
-        with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
-            futures = {
-                executor.submit(
-                    get_book, book_id, base_url, api_username, api_password
-                ): book_id
-                for book_id in books_ids
-            }
-            for future, book_id in futures.items():
-                komga_metadata = future.result()
-                if komga_metadata is not None:
-                    komga_metadata_by_book_id[book_id] = komga_metadata
-        gallery_names = [m["name"] for m in komga_metadata_by_book_id.values()]
-
-    h2hdb_metadata_by_name = get_h2hdb_metadata_by_gallery_names(
-        h2hconfig, gallery_names
-    )
-    current_metadata = next(iter(h2hdb_metadata_by_name.values()), None)
-
-    if current_metadata is not None:
-        series_title = series["metadata"]["title"]
-        if series_title != current_metadata["releaseDate"]:
-            patch_series_metadata(
-                {"title": current_metadata["releaseDate"]},
-                series_id,
-                base_url,
-                api_username,
-                api_password,
-            )
 
 
 def scan_komga_library(
@@ -339,30 +235,28 @@ def scan_komga_library(
         updates: dict[str, dict[str, Any]] = {}
         for book_id, komga_metadata in komga_metadata_by_book_id.items():
             current_metadata = h2hdb_metadata_by_name.get(komga_metadata["name"])
+            # BookDto nests title/summary/releaseDate/authors under
+            # "metadata"; comparing against komga_metadata itself (the
+            # top-level BookDto) would never match, since those keys don't
+            # exist at that level.
             if current_metadata is not None and not (
-                current_metadata.items() <= komga_metadata.items()
+                current_metadata.items() <= komga_metadata["metadata"].items()
             ):
                 updates[book_id] = current_metadata
         if updates:
             patch_books_metadata(updates, base_url, api_username, api_password)
-
-    def update_metadata(
-        vset: set[str],
-        exclude_vset: set[str],
-        update_fun: Callable[[KomgaConfig, H2HDBConfig, str], None],
-    ) -> None:
-        vset = vset - exclude_vset
-        with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
-            for v in vset:
-                executor.submit(update_fun, komgaconfig, h2hconfig, v)
 
     books_ids = get_books_ids_in_library_id(
         library_id, base_url, api_username, api_password
     )
     update_books_metadata(books_ids, previously_book_ids)
 
+    # Series titles are left as Komga's own defaults (the folder name, or
+    # the wrapped book's name for oneshots) — nothing to sync there. The
+    # series listing is only used to detect whether the library is still
+    # settling after scan_library()/analyze_library(), via the recursion
+    # check below.
     series_ids = get_series_ids(library_id, base_url, api_username, api_password)
-    update_metadata(series_ids, previously_series_ids, update_komga_series_metadata)
 
     if (books_ids != previously_book_ids) or (series_ids != previously_series_ids):
         scan_komga_library(komgaconfig, h2hconfig, books_ids, series_ids)
