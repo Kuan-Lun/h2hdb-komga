@@ -1,0 +1,22 @@
+.*
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+tmp
+
+!/.gitignore
+!/.github/
+!.github/**
+!/.vscode/
+!.vscode/**
+!.claude/
+!.claude/**
+!/.Codex/
+!.Codex/**
+
+uv.lock
+h2hdb.log
+
+# macOS
+.DS_Store
