@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "h2hdb-komga"
@@ -10,12 +10,21 @@ readme = "README.md"
 authors = [{ name = "Kuan-Lun Wang" }]
 license = { text = "GNU Affero General Public License v3" }
 dependencies = ["h2hdb>=0.7.0.9,<2.0.0.0", "requests>=2.32.3,<3.0.0"]
+requires-python = ">=3.14"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=26.5.1",
+    "ruff>=0.15.20",
+    "mypy>=2.1.0",
+    "pymarkdownlnt>=0.9.38",
 ]
 
 [project.urls]
@@ -23,7 +32,19 @@ Homepage = "https://github.com/Kuan-Lun/h2hdb-komga"
 Source = "https://github.com/Kuan-Lun/h2hdb-komga"
 Tracker = "https://github.com/Kuan-Lun/h2hdb-komga/issues"
 
-[tool.setuptools]
-packages = ["h2hdb_komga"]
-package-dir = { h2hdb_komga = "src/h2hdb_komga" }
-package-data = { h2hdb_komga = ["py.typed"] }
+[tool.hatch.build.targets.wheel]
+packages = ["src/h2hdb_komga"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+# E203/E226 conflict with Black's formatting choices; E501 is redundant with
+# Black's line-length enforcement.
+extend-ignore = ["E203", "E226", "E501"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
