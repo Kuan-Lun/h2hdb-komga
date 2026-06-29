@@ -8,7 +8,7 @@ The `H2HDB-Komga` is a tool that adds tags to comics and renames series in a spe
 
 ## Installation and Usage
 
-1. Install Python 3.13 or higher from [python.org](https://www.python.org/downloads/).
+1. Install Python 3.14 or higher from [python.org](https://www.python.org/downloads/).
 1. Install the required packages.
 
     ```bash
