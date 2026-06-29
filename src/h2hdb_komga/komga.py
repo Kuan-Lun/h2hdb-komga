@@ -1,22 +1,24 @@
 __all__ = ["scan_komga_library"]
 
 # swagger-ui/index.html
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from time import sleep
-from typing import Callable
+from typing import Any
 
 import requests
-from requests.auth import HTTPBasicAuth
-
 from h2hdb import H2HDB
 from h2hdb.config_loader import H2HDBConfig
 from h2hdb.sql_connector import DatabaseKeyError
+from requests.auth import HTTPBasicAuth
 
 from .config_loader import KomgaConfig
-from .threading_tools import KomgaThreadsList
+
+KOMGA_MAX_WORKERS = 10
 
 
-def retry_request(request, retries: int = 3):
-    def wrapper(*args, **kwargs):
+def retry_request(request: Callable[..., Any], retries: int = 3) -> Callable[..., Any]:
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         if retries < 0:
             return
         else:
@@ -25,7 +27,7 @@ def retry_request(request, retries: int = 3):
             except requests.exceptions.SSLError:
                 pass
             except requests.exceptions.RequestException as e:
-                retry_codes = []  # Add more codes to this list as needed
+                retry_codes: list[str] = []  # Add more codes to this list as needed
                 if any(code in str(e) for code in retry_codes):
                     sleep(5)
                     return retry_request(request, retries - 1)(*args, **kwargs)
@@ -138,16 +140,17 @@ def get_book(
     base_url: str,
     api_username: str,
     api_password: str,
-) -> dict:
+) -> dict[str, Any]:
     url = f"{base_url}/api/v1/books/{book_id}"
     response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
     response.raise_for_status()
-    return response.json()
+    book: dict[str, Any] = response.json()
+    return book
 
 
 @retry_request
 def patch_book_metadata(
-    metadata: dict,
+    metadata: dict[str, Any],
     book_id: str,
     base_url: str,
     api_username: str,
@@ -205,16 +208,17 @@ def get_series(
     base_url: str,
     api_username: str,
     api_password: str,
-) -> dict:
+) -> dict[str, Any]:
     url = f"{base_url}/api/v1/series/{series_id}"
     response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
     response.raise_for_status()
-    return response.json()
+    series: dict[str, Any] = response.json()
+    return series
 
 
 @retry_request
 def patch_series_metadata(
-    metadata: dict,
+    metadata: dict[str, Any],
     series_id: str,
     base_url: str,
     api_username: str,
@@ -293,8 +297,8 @@ def update_komga_series_metadata(
 def scan_komga_library(
     komgaconfig: KomgaConfig,
     h2hconfig: H2HDBConfig,
-    previously_book_ids=set[str](),
-    previously_series_ids=set[str](),
+    previously_book_ids: set[str] = set(),
+    previously_series_ids: set[str] = set(),
 ) -> None:
     library_id = komgaconfig.library_id
     base_url = komgaconfig.base_url
@@ -310,9 +314,9 @@ def scan_komga_library(
         update_fun: Callable[[KomgaConfig, H2HDBConfig, str], None],
     ) -> None:
         vset = vset - exclude_vset
-        with KomgaThreadsList() as threads:
+        with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
             for v in vset:
-                threads.append(update_fun, (komgaconfig, h2hconfig, v))
+                executor.submit(update_fun, komgaconfig, h2hconfig, v)
 
     books_ids = get_books_ids_in_library_id(
         library_id, base_url, api_username, api_password

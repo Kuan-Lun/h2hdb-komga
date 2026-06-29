@@ -1,5 +1,6 @@
 import argparse
 import json
+from types import TracebackType
 
 from h2hdb import H2HDBConfig
 from h2hdb import load_config as load_h2hdb_config
@@ -15,7 +16,7 @@ class Configs:
 
 
 def load_configs(komga_config_path: str, h2hdb_config_path: str) -> Configs:
-    with open(komga_config_path, "r") as f:
+    with open(komga_config_path) as f:
         user_config = json.load(f)
 
     komga_config = KomgaConfig(
@@ -35,13 +36,18 @@ class UpdateKomga:
         self.komgaconfig = komgaconfig
         self.h2hdbconfig = h2hdbconfig
 
-    def __enter__(self):
+    def __enter__(self) -> UpdateKomga:
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         pass
 
-    def update(self):
+    def update(self) -> None:
         scan_komga_library(self.komgaconfig, self.h2hdbconfig)
 
 
