@@ -39,7 +39,8 @@
       "Bash(git log *)",
       "Bash(bash scripts/rebuild-env.sh)",
       "WebFetch(domain:komga.org)",
-      "Bash(uv pip *)"
+      "Bash(uv pip *)",
+      "WebFetch(domain:pypi.org)"
     ],
     "additionalDirectories": [
       "/tmp",
