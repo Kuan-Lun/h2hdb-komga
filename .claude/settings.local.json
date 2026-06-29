@@ -37,8 +37,9 @@
       "Bash(python3 -)",
       "Bash(docker info *)",
       "Bash(git log *)",
-      "Bash(python3 -c ＊)",
-      "Bash(bash scripts/rebuild-env.sh)"
+      "Bash(python3 -c ' *)",
+      "Bash(bash scripts/rebuild-env.sh)",
+      "WebFetch(domain:komga.org)"
     ],
     "additionalDirectories": [
       "/tmp",
