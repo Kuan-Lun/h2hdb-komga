@@ -30,7 +30,8 @@ The `H2HDB-Komga` is a tool that adds tags to comics and renames series in a spe
     "base_url": "[str]", // The url of komga.
     "api_username": "[str]", // The administrator account of komga.
     "api_password": "[str]", // The password of the administrator account of komga.
-    "library_id": "[str]" // The libary ID of komga.
+    "library_id": "[str]", // The libary ID of komga.
+    "trigger_scan": true // Optional. Whether to trigger a library scan/analyze before syncing metadata. Defaults to true; set to false to skip it and only patch metadata.
 }
 ```
 

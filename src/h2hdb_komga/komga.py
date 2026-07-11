@@ -206,8 +206,9 @@ def scan_komga_library(
     api_username = komgaconfig.api_username
     api_password = komgaconfig.api_password
 
-    scan_library(library_id, base_url, api_username, api_password)
-    analyze_library(library_id, base_url, api_username, api_password)
+    if komgaconfig.trigger_scan:
+        scan_library(library_id, base_url, api_username, api_password)
+        analyze_library(library_id, base_url, api_username, api_password)
 
     def update_books_metadata(vset: set[str], exclude_vset: set[str]) -> None:
         vset = vset - exclude_vset

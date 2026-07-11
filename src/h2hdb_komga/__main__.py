@@ -24,6 +24,7 @@ def load_configs(komga_config_path: str, h2hdb_config_path: str) -> Configs:
         user_config["api_username"],
         user_config["api_password"],
         user_config["library_id"],
+        user_config.get("trigger_scan", True),
     )
 
     h2hdb_config = load_h2hdb_config(h2hdb_config_path)
