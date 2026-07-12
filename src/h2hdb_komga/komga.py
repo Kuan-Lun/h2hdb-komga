@@ -3,7 +3,7 @@ __all__ = ["scan_komga_library"]
 # swagger-ui/index.html
 import logging
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import sleep
 from typing import Any
 
@@ -17,13 +17,20 @@ from .config_loader import KomgaConfig
 logger = logging.getLogger(__name__)
 
 KOMGA_MAX_WORKERS = 10
-# patch_books_metadata sends one PATCH request per call; a library-wide pass
-# can have five- or six-figure book counts, and bundling all of them into a
-# single request risks tripping a body-size limit (Komga's own, or a reverse
-# proxy in front of it) and silently dropping the whole batch, since
-# retry_request swallows non-retryable RequestExceptions. Chunking keeps each
-# request body bounded regardless of library size.
+# Bounds each PATCH request body regardless of library size -- one request
+# bundling a whole library-wide pass risks a body-size limit (Komga's own,
+# or a reverse proxy's).
 BOOK_METADATA_PATCH_CHUNK_SIZE = 200
+# Plain GETs/POSTs should come back quickly -- timeout aggressively rather
+# than hang forever if Komga stops responding mid-run.
+REQUEST_TIMEOUT_SECONDS = 30
+# A 200-book chunk needs a generous budget: concurrent bulk-PATCH load can
+# slow requests several-fold without Komga actually hanging.
+PATCH_TIMEOUT_SECONDS = 300
+# Re-patches only the books still unverified after a full attempt (not the
+# whole batch), up to this many times, with a pause between attempts.
+PATCH_RETRY_ATTEMPTS = 3
+PATCH_RETRY_DELAY_SECONDS = 30
 
 
 def retry_request(request: Callable[..., Any], retries: int = 3) -> Callable[..., Any]:
@@ -61,7 +68,11 @@ def get_series_ids(
         url = (
             f"{base_url}/api/v1/series?library_id={library_id}&page={page_num}&size=500"
         )
-        response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
+        response = requests.get(
+            url,
+            auth=HTTPBasicAuth(api_username, api_password),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
         response_json = response.json()
         if len(response_json["content"]) == 0:
@@ -86,7 +97,11 @@ def get_books_ids_in_library_id(
         url = (
             f"{base_url}/api/v1/books?library_id={library_id}&page={page_num}&size=500"
         )
-        response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
+        response = requests.get(
+            url,
+            auth=HTTPBasicAuth(api_username, api_password),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
         response_json = response.json()
         if len(response_json["content"]) == 0:
@@ -106,7 +121,11 @@ def get_books_ids_in_all_libraries(
     page_num = 0
     while True:
         url = f"{base_url}/api/v1/books?page={page_num}&size=100"
-        response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
+        response = requests.get(
+            url,
+            auth=HTTPBasicAuth(api_username, api_password),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
         response_json = response.json()
         if len(response_json["content"]) == 0:
@@ -129,24 +148,30 @@ def get_book(
     api_password: str,
 ) -> dict[str, Any]:
     url = f"{base_url}/api/v1/books/{book_id}"
-    response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
+    response = requests.get(
+        url,
+        auth=HTTPBasicAuth(api_username, api_password),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
     response.raise_for_status()
     book: dict[str, Any] = response.json()
     return book
 
 
-@retry_request
 def patch_books_metadata(
     metadata_by_book_id: dict[str, dict[str, Any]],
     base_url: str,
     api_username: str,
     api_password: str,
 ) -> None:
+    # Deliberately not @retry_request -- the caller (_patch_chunk) needs the
+    # real exception to tell a timeout from a hard failure.
     url = f"{base_url}/api/v1/books/metadata"
     response = requests.patch(
         url,
         json=metadata_by_book_id,
         auth=HTTPBasicAuth(api_username, api_password),
+        timeout=PATCH_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
 
@@ -157,18 +182,17 @@ def _book_metadata_is_up_to_date(
     return bool(expected_metadata.items() <= book["metadata"].items())
 
 
-def verify_books_metadata_updated(
+def _find_unverified_books(
     expected_metadata_by_book_id: dict[str, dict[str, Any]],
     base_url: str,
     api_username: str,
     api_password: str,
-) -> None:
-    # patch_books_metadata's PATCH call is wrapped by retry_request, which
-    # swallows non-retryable RequestExceptions (prints and returns None)
-    # instead of raising -- so a rejected or dropped PATCH (oversized body,
-    # proxy timeout, etc.) would otherwise go unnoticed. Re-fetching each
-    # patched book and diffing against what we tried to write is the only
-    # way to actually confirm the write landed.
+) -> list[str]:
+    # A 204 only confirms the bulk request was accepted, not that every book
+    # in it was actually applied -- re-fetching and diffing is the only way
+    # to confirm a given book's write landed.
+    # Runs once per attempt after all chunks finish, not nested inside chunk
+    # dispatch, so this pool doesn't multiply concurrency against Komga.
     with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
         futures = {
             executor.submit(
@@ -176,7 +200,7 @@ def verify_books_metadata_updated(
             ): book_id
             for book_id in expected_metadata_by_book_id
         }
-        unverified_book_ids = sorted(
+        return sorted(
             book_id
             for future, book_id in futures.items()
             if (book := future.result()) is None
@@ -184,13 +208,25 @@ def verify_books_metadata_updated(
                 expected_metadata_by_book_id[book_id], book
             )
         )
-    if unverified_book_ids:
-        message = (
-            f"Komga metadata update did not verify for {len(unverified_book_ids)} "
-            f"book(s): {', '.join(unverified_book_ids)}"
+
+
+def _patch_chunk(
+    chunk: dict[str, dict[str, Any]],
+    base_url: str,
+    api_username: str,
+    api_password: str,
+) -> None:
+    try:
+        patch_books_metadata(chunk, base_url, api_username, api_password)
+    except requests.exceptions.Timeout:
+        logger.warning(
+            "PATCH for %d book(s) timed out client-side after %ds; will verify "
+            "and retry if it didn't actually land",
+            len(chunk),
+            PATCH_TIMEOUT_SECONDS,
         )
-        logger.error(message)
-        raise RuntimeError(message)
+    except requests.exceptions.RequestException as e:
+        logger.error("PATCH for %d book(s) failed: %s", len(chunk), e)
 
 
 @retry_request
@@ -201,7 +237,11 @@ def download_book(
     api_password: str,
 ) -> bytes:
     url = f"{base_url}/api/v1/books/{book_id}/file"
-    response = requests.get(url, auth=HTTPBasicAuth(api_username, api_password))
+    response = requests.get(
+        url,
+        auth=HTTPBasicAuth(api_username, api_password),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
     response.raise_for_status()
     return response.content
 
@@ -214,7 +254,11 @@ def scan_library(
     api_password: str,
 ) -> None:
     url = f"{base_url}/api/v1/libraries/{library_id}/scan"
-    response = requests.post(url, auth=HTTPBasicAuth(api_username, api_password))
+    response = requests.post(
+        url,
+        auth=HTTPBasicAuth(api_username, api_password),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
     response.raise_for_status()
 
 
@@ -226,18 +270,20 @@ def analyze_library(
     api_password: str,
 ) -> None:
     url = f"{base_url}/api/v1/libraries/{library_id}/analyze"
-    response = requests.post(url, auth=HTTPBasicAuth(api_username, api_password))
+    response = requests.post(
+        url,
+        auth=HTTPBasicAuth(api_username, api_password),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
     response.raise_for_status()
 
 
 def get_h2hdb_metadata_by_gallery_names(
     h2hconfig: H2HDBConfig, gallery_names: list[str]
 ) -> dict[str, dict[str, Any]]:
-    # H2HDB.get_komga_metadata() raises a plain KeyError (not DatabaseKeyError)
-    # for any gallery name it doesn't recognize, and fails the whole batch
-    # rather than skipping just that one name. Retry with the offending name
-    # removed until the batch succeeds, since a Komga book without a matching
-    # H2HDB gallery is an expected, not exceptional, case.
+    # get_komga_metadata() raises a plain KeyError for any unrecognized
+    # gallery name and fails the whole batch -- retry with the offending name
+    # removed, since a Komga book with no matching H2HDB gallery is expected.
     names = list(dict.fromkeys(gallery_names))
     skipped = 0
     with H2HDB(config=h2hconfig) as connector:
@@ -300,9 +346,8 @@ def scan_komga_library(
         for book_id, komga_metadata in komga_metadata_by_book_id.items():
             current_metadata = h2hdb_metadata_by_name.get(komga_metadata["name"])
             # BookDto nests title/summary/releaseDate/authors under
-            # "metadata"; comparing against komga_metadata itself (the
-            # top-level BookDto) would never match, since those keys don't
-            # exist at that level.
+            # "metadata" -- comparing against komga_metadata itself would
+            # never match.
             if current_metadata is not None and not _book_metadata_is_up_to_date(
                 current_metadata, komga_metadata
             ):
@@ -313,30 +358,68 @@ def scan_komga_library(
             len(updates),
             len(komga_metadata_by_book_id),
         )
-        update_book_ids = list(updates)
-        num_chunks = -(-len(update_book_ids) // BOOK_METADATA_PATCH_CHUNK_SIZE)
-        for chunk_num, i in enumerate(
-            range(0, len(update_book_ids), BOOK_METADATA_PATCH_CHUNK_SIZE), start=1
-        ):
-            chunk_ids = update_book_ids[i : i + BOOK_METADATA_PATCH_CHUNK_SIZE]
-            chunk = {book_id: updates[book_id] for book_id in chunk_ids}
+        if not updates:
+            return
+
+        remaining = updates
+        for attempt in range(1, PATCH_RETRY_ATTEMPTS + 1):
+            remaining_ids = list(remaining)
+            chunks = [
+                {
+                    book_id: remaining[book_id]
+                    for book_id in remaining_ids[i : i + BOOK_METADATA_PATCH_CHUNK_SIZE]
+                }
+                for i in range(0, len(remaining_ids), BOOK_METADATA_PATCH_CHUNK_SIZE)
+            ]
             logger.info(
-                "Patching chunk %d/%d (%d book(s))", chunk_num, num_chunks, len(chunk)
+                "Attempt %d/%d: patching %d book(s) in %d chunk(s)",
+                attempt,
+                PATCH_RETRY_ATTEMPTS,
+                len(remaining),
+                len(chunks),
             )
-            patch_books_metadata(chunk, base_url, api_username, api_password)
-            verify_books_metadata_updated(chunk, base_url, api_username, api_password)
-            logger.info("Chunk %d/%d verified", chunk_num, num_chunks)
+            with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
+                chunk_futures = [
+                    executor.submit(
+                        _patch_chunk, chunk, base_url, api_username, api_password
+                    )
+                    for chunk in chunks
+                ]
+                for future in as_completed(chunk_futures):
+                    future.result()
+
+            unverified_ids = _find_unverified_books(
+                remaining, base_url, api_username, api_password
+            )
+            if not unverified_ids:
+                logger.info("All %d book(s) patched and verified", len(remaining))
+                remaining = {}
+                break
+
+            remaining = {book_id: remaining[book_id] for book_id in unverified_ids}
+            logger.warning(
+                "%d book(s) still not verified after attempt %d/%d",
+                len(remaining),
+                attempt,
+                PATCH_RETRY_ATTEMPTS,
+            )
+            if attempt < PATCH_RETRY_ATTEMPTS:
+                sleep(PATCH_RETRY_DELAY_SECONDS)
+
+        if remaining:
+            raise RuntimeError(
+                f"Komga metadata update did not verify for {len(remaining)} "
+                f"book(s): {', '.join(sorted(remaining))}"
+            )
 
     books_ids = get_books_ids_in_library_id(
         library_id, base_url, api_username, api_password
     )
     update_books_metadata(books_ids, previously_book_ids)
 
-    # Series titles are left as Komga's own defaults (the folder name, or
-    # the wrapped book's name for oneshots) — nothing to sync there. The
-    # series listing is only used to detect whether the library is still
-    # settling after scan_library()/analyze_library(), via the recursion
-    # check below.
+    # Series titles are left as Komga's own defaults (folder name, or the
+    # wrapped book's name for oneshots) -- this listing is only used to
+    # detect whether the library is still settling after scan/analyze.
     series_ids = get_series_ids(library_id, base_url, api_username, api_password)
 
     if (books_ids != previously_book_ids) or (series_ids != previously_series_ids):
