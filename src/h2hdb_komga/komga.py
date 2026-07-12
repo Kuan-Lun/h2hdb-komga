@@ -1,11 +1,15 @@
 __all__ = ["KomgaClient", "PATCH_TIMEOUT_SECONDS", "REQUEST_TIMEOUT_SECONDS"]
 
+import logging
+from time import monotonic
 from typing import Any
 
 import requests
 from requests.auth import HTTPBasicAuth
 
 from .config_loader import KomgaConfig
+
+logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 500
 # Plain GETs/POSTs should come back quickly -- timeout aggressively rather
@@ -14,6 +18,8 @@ REQUEST_TIMEOUT_SECONDS = 30
 # A 200-book bulk PATCH needs a generous budget: concurrent bulk-PATCH load
 # can slow requests several-fold without Komga actually hanging.
 PATCH_TIMEOUT_SECONDS = 300
+# Pagination has no known total up front, so progress can only be time-based.
+PAGINATION_LOG_INTERVAL_SECONDS = 30
 
 
 class KomgaClient:
@@ -29,6 +35,7 @@ class KomgaClient:
     def _paginate_ids(self, path: str) -> set[str]:
         ids = set[str]()
         page_num = 0
+        last_logged_at = monotonic()
         while True:
             params: dict[str, str | int] = {
                 "library_id": self.library_id,
@@ -46,6 +53,10 @@ class KomgaClient:
                 return ids
             ids.update(item["id"] for item in content)
             page_num += 1
+            now = monotonic()
+            if now - last_logged_at >= PAGINATION_LOG_INTERVAL_SECONDS:
+                logger.info("Listed %d id(s) so far (page %d)", len(ids), page_num)
+                last_logged_at = now
 
     def get_book_ids(self) -> set[str]:
         return self._paginate_ids("/api/v1/books")

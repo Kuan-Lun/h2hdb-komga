@@ -27,9 +27,16 @@ PATCH_RETRY_DELAY_SECONDS = 30
 # A percentage-based progress log can go silent for a long stretch on a huge,
 # slow batch -- this caps the longest possible silence.
 PROGRESS_LOG_MAX_INTERVAL_SECONDS = 300
+# get_komga_metadata() re-runs its full (chunked) DB lookup pipeline on every
+# retry after removing one unrecognized name -- scoping each call to a chunk
+# this size, rather than the whole library, bounds how much work one
+# unrecognized name among many can force to be redone.
+H2HDB_QUERY_CHUNK_SIZE = 500
 
 
-def _progress_logger(action: str, total: int) -> Callable[[int], None]:
+def _progress_logger(
+    action: str, total: int, unit: str = "book(s)"
+) -> Callable[[int], None]:
     log_every = max(total // 10, 1)
     last_logged_at = monotonic()
 
@@ -41,7 +48,7 @@ def _progress_logger(action: str, total: int) -> Callable[[int], None]:
             or completed == total
             or now - last_logged_at >= PROGRESS_LOG_MAX_INTERVAL_SECONDS
         ):
-            logger.info("%s %d/%d book(s)", action, completed, total)
+            logger.info("%s %d/%d %s", action, completed, total, unit)
             last_logged_at = now
 
     return log
@@ -54,20 +61,26 @@ def _get_h2hdb_metadata_by_gallery_names(
     # gallery name and fails the whole batch -- retry with the offending name
     # removed, since a Komga book with no matching H2HDB gallery is expected.
     names = list(dict.fromkeys(gallery_names))
+    result: dict[str, dict[str, Any]] = {}
     skipped = 0
+    chunks = [
+        names[i : i + H2HDB_QUERY_CHUNK_SIZE]
+        for i in range(0, len(names), H2HDB_QUERY_CHUNK_SIZE)
+    ]
+    log_progress = _progress_logger("Queried H2HDB for", len(chunks), unit="chunk(s)")
     with H2HDB(config=h2hconfig) as connector:
-        while names:
-            try:
-                result = connector.get_komga_metadata(names)
-                if skipped:
-                    logger.info(
-                        "%d gallery name(s) had no matching H2HDB entry", skipped
-                    )
-                return result
-            except KeyError as e:
-                names.remove(e.args[0])
-                skipped += 1
-    return {}
+        for chunk_num, chunk in enumerate(chunks, start=1):
+            while chunk:
+                try:
+                    result.update(connector.get_komga_metadata(chunk))
+                    break
+                except KeyError as e:
+                    chunk.remove(e.args[0])
+                    skipped += 1
+            log_progress(chunk_num)
+    if skipped:
+        logger.info("%d gallery name(s) had no matching H2HDB entry", skipped)
+    return result
 
 
 def _book_metadata_is_up_to_date(
@@ -160,12 +173,14 @@ def _patch_with_retries(
             len(remaining),
             len(chunks),
         )
+        log_progress = _progress_logger("Patched", len(chunks), unit="chunk(s)")
         with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
             chunk_futures = [
                 executor.submit(_patch_chunk, client, chunk) for chunk in chunks
             ]
-            for future in as_completed(chunk_futures):
+            for completed, future in enumerate(as_completed(chunk_futures), start=1):
                 future.result()
+                log_progress(completed)
 
         unverified_ids = _find_unverified_books(client, remaining)
         if not unverified_ids:
