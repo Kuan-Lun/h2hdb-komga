@@ -89,6 +89,15 @@ def _book_metadata_is_up_to_date(
     return bool(expected_metadata.items() <= book["metadata"].items())
 
 
+def _without_blank_title(expected_metadata: dict[str, Any]) -> dict[str, Any]:
+    # H2HDB can return a blank title for a gallery whose name never had one --
+    # Komga's metadata PATCH rejects a blank title outright, so leave Komga's
+    # own title alone rather than attempting (and failing) to overwrite it.
+    if expected_metadata.get("title"):
+        return expected_metadata
+    return {key: value for key, value in expected_metadata.items() if key != "title"}
+
+
 def _fetch_books(client: KomgaClient, book_ids: set[str]) -> dict[str, dict[str, Any]]:
     books: dict[str, dict[str, Any]] = {}
     failed = 0
@@ -230,12 +239,14 @@ def _update_books_metadata(
 
     # BookDto nests title/summary/releaseDate/authors under "metadata" --
     # comparing against the top-level BookDto would never match.
-    updates = {
-        book_id: expected_metadata
-        for book_id, book in books.items()
-        if (expected_metadata := h2hdb_metadata_by_name.get(book["name"])) is not None
-        and not _book_metadata_is_up_to_date(expected_metadata, book)
-    }
+    updates: dict[str, dict[str, Any]] = {}
+    for book_id, book in books.items():
+        expected_metadata = h2hdb_metadata_by_name.get(book["name"])
+        if expected_metadata is None:
+            continue
+        expected_metadata = _without_blank_title(expected_metadata)
+        if not _book_metadata_is_up_to_date(expected_metadata, book):
+            updates[book_id] = expected_metadata
     logger.info("%d of %d book(s) are out of date", len(updates), len(books))
     if not updates:
         return
