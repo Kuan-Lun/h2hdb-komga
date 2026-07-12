@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 from types import TracebackType
 
 from h2hdb import H2HDBConfig
@@ -62,6 +63,10 @@ if __name__ == "__main__":
         raise ValueError("No komga config file provided")
     if args.h2hdbconfig is None:
         raise ValueError("No h2hdb config file provided")
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
 
     configs = load_configs(args.komgaconfig, args.h2hdbconfig)
 
