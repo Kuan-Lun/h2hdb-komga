@@ -1,8 +1,9 @@
 __all__ = ["sync_komga_library"]
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from time import sleep
+from time import monotonic, sleep
 from typing import Any
 
 import requests
@@ -23,6 +24,27 @@ BOOK_METADATA_PATCH_CHUNK_SIZE = 200
 # whole batch), up to this many times, with a pause between attempts.
 PATCH_RETRY_ATTEMPTS = 3
 PATCH_RETRY_DELAY_SECONDS = 30
+# A percentage-based progress log can go silent for a long stretch on a huge,
+# slow batch -- this caps the longest possible silence.
+PROGRESS_LOG_MAX_INTERVAL_SECONDS = 300
+
+
+def _progress_logger(action: str, total: int) -> Callable[[int], None]:
+    log_every = max(total // 10, 1)
+    last_logged_at = monotonic()
+
+    def log(completed: int) -> None:
+        nonlocal last_logged_at
+        now = monotonic()
+        if (
+            completed % log_every == 0
+            or completed == total
+            or now - last_logged_at >= PROGRESS_LOG_MAX_INTERVAL_SECONDS
+        ):
+            logger.info("%s %d/%d book(s)", action, completed, total)
+            last_logged_at = now
+
+    return log
 
 
 def _get_h2hdb_metadata_by_gallery_names(
@@ -57,17 +79,19 @@ def _book_metadata_is_up_to_date(
 def _fetch_books(client: KomgaClient, book_ids: set[str]) -> dict[str, dict[str, Any]]:
     books: dict[str, dict[str, Any]] = {}
     failed = 0
+    log_progress = _progress_logger("Fetched", len(book_ids))
     with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
         futures = {
             executor.submit(client.get_book, book_id): book_id for book_id in book_ids
         }
-        for future in as_completed(futures):
+        for completed, future in enumerate(as_completed(futures), start=1):
             book_id = futures[future]
             try:
                 books[book_id] = future.result()
             except requests.exceptions.RequestException as e:
                 failed += 1
                 logger.debug("Failed to fetch book %s: %s", book_id, e)
+            log_progress(completed)
     if failed:
         logger.warning("Failed to fetch %d of %d book(s)", failed, len(book_ids))
     return books
@@ -100,6 +124,7 @@ def _find_unverified_books(
             return False
         return _book_metadata_is_up_to_date(expected_metadata, book)
 
+    log_progress = _progress_logger("Verified", len(expected_metadata_by_book_id))
     # Runs once per attempt after all chunks finish, not nested inside chunk
     # dispatch, so this pool doesn't multiply concurrency against Komga.
     with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
@@ -107,9 +132,12 @@ def _find_unverified_books(
             executor.submit(is_verified, book_id, expected_metadata): book_id
             for book_id, expected_metadata in expected_metadata_by_book_id.items()
         }
-        return sorted(
-            book_id for future, book_id in futures.items() if not future.result()
-        )
+        unverified = list[str]()
+        for completed, future in enumerate(as_completed(futures), start=1):
+            if not future.result():
+                unverified.append(futures[future])
+            log_progress(completed)
+        return sorted(unverified)
 
 
 def _patch_with_retries(
