@@ -63,29 +63,35 @@ rather than working around it.
 
 ### Module layout
 
-- `config_loader.py` — `KomgaConfig`, a plain `__slots__` value object
-  (`base_url`, `api_username`, `api_password`, `library_id`) loaded from a
-  user-supplied JSON file in `__main__.py`.
-- `komga.py` — all Komga REST API calls (`requests` + HTTP basic auth) and the
-  sync orchestration. Every request function is wrapped in `@retry_request`
-  (retries on `requests.exceptions.RequestException` whose message matches an
-  entry in a `retry_codes` allowlist, currently empty — extend it if a
-  transient Komga error needs retrying). `scan_komga_library` is the
-  entry point: scan + analyze the library, then patch book and series
-  metadata for everything that's new since the previous call (it recurses,
-  passing the previous run's book/series ID sets, until a pass finds nothing
-  new).
+- `config_loader.py` — `KomgaConfig`, a frozen dataclass with a
+  `from_file()` classmethod that loads the user-supplied JSON file.
+- `komga.py` — `KomgaClient`, a thin wrapper over Komga's REST API
+  (`requests.Session` + HTTP basic auth, hard timeouts on every call).
+  Methods raise `requests` exceptions on failure; deciding how to react
+  (skip, verify, retry) is the sync layer's job, not the client's.
+- `sync.py` — orchestration. `sync_komga_library` is the entry point: scan +
+  analyze the library, then repeatedly diff Komga book metadata against
+  H2HDB and patch what's out of date, looping until a pass finds the
+  book/series listings unchanged (the library has settled). Patches go out
+  in bounded chunks (`BOOK_METADATA_PATCH_CHUNK_SIZE`) dispatched
+  concurrently; after each attempt every patched book is re-fetched and
+  verified (a bulk-PATCH 204 doesn't confirm each individual book was
+  applied), and only the books that failed verification are re-patched, up
+  to `PATCH_RETRY_ATTEMPTS` — any survivors abort the run with a
+  `RuntimeError` listing their IDs. Series metadata is left as Komga's own
+  defaults; the series listing is only used for the settling check.
 - `__main__.py` — CLI argument parsing (`--komgaconfig`, `--h2hdbconfig`),
-  loads both config files, and runs one `scan_komga_library` pass via the
-  `UpdateKomga` context manager.
+  logging setup, config loading, one `sync_komga_library` call.
 
 ### Concurrency
 
-`update_komga_book_metadata`/`update_komga_series_metadata` are dispatched
-per book/series through a `concurrent.futures.ThreadPoolExecutor` bounded by
-`KOMGA_MAX_WORKERS` (10) in `komga.py`, since each call is a handful of
-sequential HTTP round-trips to Komga and H2HDB. There used to be a
-dependency on `h2hdb.threading_tools.ThreadsList` for this, but that class
+HTTP calls fan out through `concurrent.futures.ThreadPoolExecutor` bounded
+by `KOMGA_MAX_WORKERS` (10) in `sync.py` — per-book GETs when collecting
+metadata and verifying patches, and per-chunk bulk PATCHes when writing.
+Verification runs once per attempt after all of that attempt's chunks have
+finished, never nested inside the chunk dispatch, so pools don't stack into
+`KOMGA_MAX_WORKERS**2` concurrent requests against Komga. There used to be
+a dependency on `h2hdb.threading_tools.ThreadsList` for this, but that class
 was removed upstream in h2hdb 0.10.x (replaced there with a
 `multiprocessing`-based helper meant for CPU-bound work, not this module's
 I/O-bound HTTP calls) — don't reintroduce that dependency; the stdlib
