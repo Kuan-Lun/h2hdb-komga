@@ -1,22 +1,24 @@
-class KomgaConfig:
-    __slots__ = [
-        "base_url",
-        "api_username",
-        "api_password",
-        "library_id",
-        "trigger_scan",
-    ]
+import json
+from dataclasses import dataclass
+from typing import Self
 
-    def __init__(
-        self,
-        base_url: str,
-        api_username: str,
-        api_password: str,
-        library_id: str,
-        trigger_scan: bool = True,
-    ) -> None:
-        self.base_url = base_url
-        self.api_username = api_username
-        self.api_password = api_password
-        self.library_id = library_id
-        self.trigger_scan = trigger_scan
+
+@dataclass(frozen=True, slots=True)
+class KomgaConfig:
+    base_url: str
+    api_username: str
+    api_password: str
+    library_id: str
+    trigger_scan: bool
+
+    @classmethod
+    def from_file(cls, path: str) -> Self:
+        with open(path) as f:
+            raw = json.load(f)
+        return cls(
+            base_url=raw["base_url"],
+            api_username=raw["api_username"],
+            api_password=raw["api_password"],
+            library_id=raw["library_id"],
+            trigger_scan=raw.get("trigger_scan", True),
+        )
