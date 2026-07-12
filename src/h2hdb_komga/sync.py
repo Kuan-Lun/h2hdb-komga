@@ -153,25 +153,40 @@ def _find_unverified_books(
         return sorted(unverified)
 
 
+def _chunk_size_for_attempt(attempt: int) -> int:
+    # A bulk PATCH appears to reject its whole request if any single book in
+    # it is invalid, rather than applying the rest -- so retrying with the
+    # same grouping leaves a bad book's chunk-mates stuck behind it forever.
+    # Shrinking chunk size each attempt, down to one book per request on the
+    # last attempt, guarantees only genuinely-bad books are still isolated
+    # (and identifiable) once retries run out.
+    if attempt == PATCH_RETRY_ATTEMPTS:
+        return 1
+    shrink_factor = int(10 ** (attempt - 1))
+    return max(1, BOOK_METADATA_PATCH_CHUNK_SIZE // shrink_factor)
+
+
 def _patch_with_retries(
     client: KomgaClient, updates: dict[str, dict[str, Any]]
 ) -> dict[str, dict[str, Any]]:
     remaining = updates
     for attempt in range(1, PATCH_RETRY_ATTEMPTS + 1):
+        chunk_size = _chunk_size_for_attempt(attempt)
         remaining_ids = list(remaining)
         chunks = [
             {
                 book_id: remaining[book_id]
-                for book_id in remaining_ids[i : i + BOOK_METADATA_PATCH_CHUNK_SIZE]
+                for book_id in remaining_ids[i : i + chunk_size]
             }
-            for i in range(0, len(remaining_ids), BOOK_METADATA_PATCH_CHUNK_SIZE)
+            for i in range(0, len(remaining_ids), chunk_size)
         ]
         logger.info(
-            "Attempt %d/%d: patching %d book(s) in %d chunk(s)",
+            "Attempt %d/%d: patching %d book(s) in %d chunk(s) of up to %d",
             attempt,
             PATCH_RETRY_ATTEMPTS,
             len(remaining),
             len(chunks),
+            chunk_size,
         )
         log_progress = _progress_logger("Patched", len(chunks), unit="chunk(s)")
         with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
