@@ -17,6 +17,7 @@ tmp
 
 uv.lock
 h2hdb.log
+.claude/scheduled_tasks.lock
 
 # macOS
 .DS_Store
