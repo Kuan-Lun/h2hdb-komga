@@ -1,7 +1,7 @@
 __all__ = ["KomgaClient", "PATCH_TIMEOUT_SECONDS", "REQUEST_TIMEOUT_SECONDS"]
 
 import logging
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any
 
 import requests
@@ -20,6 +20,11 @@ REQUEST_TIMEOUT_SECONDS = 30
 PATCH_TIMEOUT_SECONDS = 300
 # Pagination has no known total up front, so progress can only be time-based.
 PAGINATION_LOG_INTERVAL_SECONDS = 30
+# A single page fetch can fail from a transient Komga-side hiccup (e.g.
+# contention while a scan is still running) -- retrying just that page is far
+# cheaper than re-running the whole paginated listing.
+PAGE_FETCH_RETRY_ATTEMPTS = 3
+PAGE_FETCH_RETRY_DELAY_SECONDS = 5
 
 
 class KomgaClient:
@@ -32,6 +37,39 @@ class KomgaClient:
         self._session = requests.Session()
         self._session.auth = HTTPBasicAuth(config.api_username, config.api_password)
 
+    def _get_page(
+        self, path: str, params: dict[str, str | int]
+    ) -> list[dict[str, Any]]:
+        attempt = 1
+        while True:
+            try:
+                response = self._session.get(
+                    f"{self._base_url}{path}",
+                    params=params,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
+                content: list[dict[str, Any]] = response.json()["content"]
+                return content
+            except requests.exceptions.RequestException as e:
+                is_client_error = (
+                    isinstance(e, requests.exceptions.HTTPError)
+                    and e.response is not None
+                    and e.response.status_code < 500
+                )
+                if is_client_error or attempt >= PAGE_FETCH_RETRY_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "Page fetch %s (page %s) failed (attempt %d/%d): %s; retrying",
+                    path,
+                    params["page"],
+                    attempt,
+                    PAGE_FETCH_RETRY_ATTEMPTS,
+                    e,
+                )
+                sleep(PAGE_FETCH_RETRY_DELAY_SECONDS)
+                attempt += 1
+
     def _paginate_ids(self, path: str) -> set[str]:
         ids = set[str]()
         page_num = 0
@@ -42,13 +80,7 @@ class KomgaClient:
                 "page": page_num,
                 "size": PAGE_SIZE,
             }
-            response = self._session.get(
-                f"{self._base_url}{path}",
-                params=params,
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-            response.raise_for_status()
-            content = response.json()["content"]
+            content = self._get_page(path, params)
             if not content:
                 return ids
             ids.update(item["id"] for item in content)
