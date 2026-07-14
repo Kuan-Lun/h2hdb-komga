@@ -40,7 +40,8 @@
       "Bash(bash scripts/rebuild-env.sh)",
       "WebFetch(domain:komga.org)",
       "Bash(uv pip *)",
-      "WebFetch(domain:pypi.org)"
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "additionalDirectories": [
       "/tmp",
