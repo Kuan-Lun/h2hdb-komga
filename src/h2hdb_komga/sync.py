@@ -264,8 +264,21 @@ def sync_komga_library(komgaconfig: KomgaConfig, h2hconfig: H2HDBConfig) -> None
 
     if komgaconfig.trigger_scan:
         logger.info("Triggering scan and analyze for library %s", client.library_id)
-        client.scan_library()
-        client.analyze_library()
+        # Analyze in particular can run well past REQUEST_TIMEOUT_SECONDS on
+        # Komga's side; the caller only needs the job queued, not finished,
+        # since the settling loop below re-polls until it's done.
+        try:
+            client.scan_library()
+        except requests.exceptions.Timeout:
+            logger.info(
+                "Scan request timed out waiting for a response; treating as queued"
+            )
+        try:
+            client.analyze_library()
+        except requests.exceptions.Timeout:
+            logger.info(
+                "Analyze request timed out waiting for a response; treating as queued"
+            )
 
     # scan_library/analyze_library are asynchronous jobs on Komga's side, so
     # keep re-diffing until a pass finds the book/series listings unchanged
