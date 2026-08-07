@@ -1,17 +1,18 @@
 __all__ = ["sync_komga_library"]
 
 import logging
+import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import monotonic, sleep
-from typing import Any
+from typing import Any, Protocol
 
 import requests
-from h2hdb import H2HDB
-from h2hdb.config_loader import H2HDBConfig
+from h2hdb import CatalogPublication, CatalogReader, CatalogRevision
 
 from .config_loader import KomgaConfig
 from .komga import PATCH_TIMEOUT_SECONDS, KomgaClient
+from .metadata import KomgaMetadata, publication_to_komga_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +28,52 @@ PATCH_RETRY_DELAY_SECONDS = 30
 # A percentage-based progress log can go silent for a long stretch on a huge,
 # slow batch -- this caps the longest possible silence.
 PROGRESS_LOG_MAX_INTERVAL_SECONDS = 300
-# get_komga_metadata() re-runs its full (chunked) DB lookup pipeline on every
-# retry after removing one unrecognized name -- scoping each call to a chunk
-# this size, rather than the whole library, bounds how much work one
-# unrecognized name among many can force to be redone.
-H2HDB_QUERY_CHUNK_SIZE = 500
+SETTLING_POLL_INTERVAL_SECONDS = 5.0
+SETTLING_STABLE_OBSERVATION_SECONDS = 30.0
+SETTLING_TIMEOUT_SECONDS = 3600.0
+CATALOG_PAGE_SIZE = 200
+FRIENDLY_GALLERY_GID_PATTERN = re.compile(r"\[(\d+)]$")
+CONTENT_ADDRESSED_GID_PATTERN = re.compile(
+    r"^(\d+)-[0-9a-f]{64}(?:-[0-9a-f]{32})?$",
+    re.IGNORECASE,
+)
+
+
+class KomgaGateway(Protocol):
+    library_id: str
+
+    def get_book_ids(self, *, timeout_seconds: float | None = None) -> set[str]: ...
+
+    def get_series_ids(self, *, timeout_seconds: float | None = None) -> set[str]: ...
+
+    def get_book(
+        self, book_id: str, *, timeout_seconds: float | None = None
+    ) -> dict[str, Any]: ...
+
+    def patch_books_metadata(
+        self,
+        metadata_by_book_id: dict[str, KomgaMetadata],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> None: ...
+
+    def scan_library(self, *, timeout_seconds: float | None = None) -> None: ...
+
+    def analyze_library(self, *, timeout_seconds: float | None = None) -> None: ...
+
+
+def _remaining_seconds(
+    deadline: float,
+    clock: Callable[[], float],
+    *,
+    operation: str,
+) -> float:
+    remaining = deadline - clock()
+    if remaining <= 0:
+        raise TimeoutError(
+            f"Timed out waiting for Komga library to settle during {operation}"
+        )
+    return remaining
 
 
 def _progress_logger(
@@ -54,74 +96,167 @@ def _progress_logger(
     return log
 
 
-def _get_h2hdb_metadata_by_gallery_names(
-    h2hconfig: H2HDBConfig, gallery_names: list[str]
-) -> dict[str, dict[str, Any]]:
-    # get_komga_metadata() raises a plain KeyError for any unrecognized
-    # gallery name and fails the whole batch -- retry with the offending name
-    # removed, since a Komga book with no matching H2HDB gallery is expected.
-    names = list(dict.fromkeys(gallery_names))
-    result: dict[str, dict[str, Any]] = {}
-    skipped = 0
-    chunks = [
-        names[i : i + H2HDB_QUERY_CHUNK_SIZE]
-        for i in range(0, len(names), H2HDB_QUERY_CHUNK_SIZE)
-    ]
-    log_progress = _progress_logger("Queried H2HDB for", len(chunks), unit="chunk(s)")
-    with H2HDB(config=h2hconfig) as connector:
-        for chunk_num, chunk in enumerate(chunks, start=1):
-            while chunk:
-                try:
-                    result.update(connector.get_komga_metadata(chunk))
-                    break
-                except KeyError as e:
-                    chunk.remove(e.args[0])
-                    skipped += 1
-            log_progress(chunk_num)
+def _artifact_name_candidates(book_name: str) -> tuple[str, ...]:
+    if book_name.casefold().endswith(".cbz"):
+        return (book_name,)
+    return (book_name, f"{book_name}.cbz")
+
+
+def _friendly_gallery_gid(book_name: str) -> int | None:
+    normalized = book_name.strip()
+    if normalized.casefold().endswith(".cbz"):
+        normalized = normalized[:-4]
+    if normalized.isdecimal():
+        gid = int(normalized)
+        return gid if gid > 0 else None
+    content_addressed = CONTENT_ADDRESSED_GID_PATTERN.fullmatch(normalized)
+    if content_addressed is not None:
+        gid = int(content_addressed.group(1))
+        return gid if gid > 0 else None
+    match = FRIENDLY_GALLERY_GID_PATTERN.search(normalized)
+    if match is None:
+        return None
+    gid = int(match.group(1))
+    return gid if gid > 0 else None
+
+
+def _publications_by_gids(
+    catalog_reader: CatalogReader,
+    gids: set[int],
+    revision: CatalogRevision,
+) -> dict[int, CatalogPublication]:
+    if not gids:
+        return {}
+    result: dict[int, CatalogPublication] = {}
+    offset = 0
+    while offset < revision.publication_count and len(result) < len(gids):
+        page = catalog_reader.list_publications(
+            offset=offset,
+            limit=CATALOG_PAGE_SIZE,
+            revision=revision,
+        )
+        for publication in page.publications:
+            if publication.gid in gids:
+                result[publication.gid] = publication
+        if not page.publications:
+            break
+        offset += len(page.publications)
+        if offset >= page.total:
+            break
+    return result
+
+
+def _get_catalog_metadata_by_book_names(
+    catalog_reader: CatalogReader,
+    book_names: list[str],
+    *,
+    revision: CatalogRevision | None = None,
+) -> dict[str, KomgaMetadata]:
+    names = list(dict.fromkeys(book_names))
+    if not names:
+        return {}
+    selected_revision = revision or catalog_reader.get_catalog_revision()
+
+    candidates_by_name = {name: _artifact_name_candidates(name) for name in names}
+    artifact_candidates = list(
+        dict.fromkeys(
+            candidate
+            for candidates in candidates_by_name.values()
+            for candidate in candidates
+        )
+    )
+    publications_by_artifact = catalog_reader.get_publications_by_artifact_names(
+        artifact_candidates,
+        revision=selected_revision,
+    )
+
+    publications_by_name: dict[str, CatalogPublication] = {}
+    for name, candidates in candidates_by_name.items():
+        for candidate in candidates:
+            publication = publications_by_artifact.get(candidate)
+            if publication is not None:
+                publications_by_name[name] = publication
+                break
+
+    friendly_gids_by_name = {
+        name: gid
+        for name in names
+        if name not in publications_by_name
+        if (gid := _friendly_gallery_gid(name)) is not None
+    }
+    publications_by_gid = _publications_by_gids(
+        catalog_reader,
+        set(friendly_gids_by_name.values()),
+        selected_revision,
+    )
+    for name, gid in friendly_gids_by_name.items():
+        if publication := publications_by_gid.get(gid):
+            publications_by_name[name] = publication
+
+    result = {
+        name: publication_to_komga_metadata(publication)
+        for name, publication in publications_by_name.items()
+    }
+    skipped = len(names) - len(result)
     if skipped:
-        logger.info("%d gallery name(s) had no matching H2HDB entry", skipped)
+        logger.info("%d Komga book name(s) had no published catalog entry", skipped)
     return result
 
 
 def _book_metadata_is_up_to_date(
-    expected_metadata: dict[str, Any], book: dict[str, Any]
+    expected_metadata: KomgaMetadata, book: dict[str, Any]
 ) -> bool:
     return bool(expected_metadata.items() <= book["metadata"].items())
 
 
-def _without_blank_title(expected_metadata: dict[str, Any]) -> dict[str, Any]:
-    # H2HDB can return a blank title for a gallery whose name never had one --
-    # Komga's metadata PATCH rejects a blank title outright, so leave Komga's
-    # own title alone rather than attempting (and failing) to overwrite it.
-    if expected_metadata.get("title"):
-        return expected_metadata
-    return {key: value for key, value in expected_metadata.items() if key != "title"}
-
-
-def _fetch_books(client: KomgaClient, book_ids: set[str]) -> dict[str, dict[str, Any]]:
+def _fetch_books(
+    client: KomgaGateway,
+    book_ids: set[str],
+    *,
+    deadline: float,
+    clock: Callable[[], float],
+) -> tuple[dict[str, dict[str, Any]], set[str]]:
     books: dict[str, dict[str, Any]] = {}
-    failed = 0
+    failed_book_ids: set[str] = set()
     log_progress = _progress_logger("Fetched", len(book_ids))
+
+    def fetch(book_id: str) -> dict[str, Any]:
+        return client.get_book(
+            book_id,
+            timeout_seconds=_remaining_seconds(deadline, clock, operation="book fetch"),
+        )
+
     with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(client.get_book, book_id): book_id for book_id in book_ids
-        }
+        futures = {executor.submit(fetch, book_id): book_id for book_id in book_ids}
         for completed, future in enumerate(as_completed(futures), start=1):
             book_id = futures[future]
             try:
                 books[book_id] = future.result()
             except requests.exceptions.RequestException as e:
-                failed += 1
+                failed_book_ids.add(book_id)
                 logger.debug("Failed to fetch book %s: %s", book_id, e)
             log_progress(completed)
-    if failed:
-        logger.warning("Failed to fetch %d of %d book(s)", failed, len(book_ids))
-    return books
+    if failed_book_ids:
+        logger.warning(
+            "Failed to fetch %d of %d book(s)", len(failed_book_ids), len(book_ids)
+        )
+    return books, failed_book_ids
 
 
-def _patch_chunk(client: KomgaClient, chunk: dict[str, dict[str, Any]]) -> None:
+def _patch_chunk(
+    client: KomgaGateway,
+    chunk: dict[str, KomgaMetadata],
+    *,
+    deadline: float,
+    clock: Callable[[], float],
+) -> None:
     try:
-        client.patch_books_metadata(chunk)
+        client.patch_books_metadata(
+            chunk,
+            timeout_seconds=_remaining_seconds(
+                deadline, clock, operation="metadata PATCH"
+            ),
+        )
     except requests.exceptions.Timeout:
         logger.warning(
             "PATCH for %d book(s) timed out client-side after %ds; will verify "
@@ -134,14 +269,23 @@ def _patch_chunk(client: KomgaClient, chunk: dict[str, dict[str, Any]]) -> None:
 
 
 def _find_unverified_books(
-    client: KomgaClient, expected_metadata_by_book_id: dict[str, dict[str, Any]]
+    client: KomgaGateway,
+    expected_metadata_by_book_id: dict[str, KomgaMetadata],
+    *,
+    deadline: float,
+    clock: Callable[[], float],
 ) -> list[str]:
     # A 204 only confirms the bulk request was accepted, not that every book
     # in it was actually applied -- re-fetching and diffing is the only way
     # to confirm a given book's write landed.
-    def is_verified(book_id: str, expected_metadata: dict[str, Any]) -> bool:
+    def is_verified(book_id: str, expected_metadata: KomgaMetadata) -> bool:
         try:
-            book = client.get_book(book_id)
+            book = client.get_book(
+                book_id,
+                timeout_seconds=_remaining_seconds(
+                    deadline, clock, operation="metadata verification"
+                ),
+            )
         except requests.exceptions.RequestException:
             return False
         return _book_metadata_is_up_to_date(expected_metadata, book)
@@ -176,10 +320,16 @@ def _chunk_size_for_attempt(attempt: int) -> int:
 
 
 def _patch_with_retries(
-    client: KomgaClient, updates: dict[str, dict[str, Any]]
-) -> dict[str, dict[str, Any]]:
+    client: KomgaGateway,
+    updates: dict[str, KomgaMetadata],
+    *,
+    deadline: float,
+    clock: Callable[[], float],
+    sleep_for: Callable[[float], None],
+) -> dict[str, KomgaMetadata]:
     remaining = updates
     for attempt in range(1, PATCH_RETRY_ATTEMPTS + 1):
+        _remaining_seconds(deadline, clock, operation="metadata retry")
         chunk_size = _chunk_size_for_attempt(attempt)
         remaining_ids = list(remaining)
         chunks = [
@@ -200,13 +350,25 @@ def _patch_with_retries(
         log_progress = _progress_logger("Patched", len(chunks), unit="chunk(s)")
         with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
             chunk_futures = [
-                executor.submit(_patch_chunk, client, chunk) for chunk in chunks
+                executor.submit(
+                    _patch_chunk,
+                    client,
+                    chunk,
+                    deadline=deadline,
+                    clock=clock,
+                )
+                for chunk in chunks
             ]
             for completed, future in enumerate(as_completed(chunk_futures), start=1):
                 future.result()
                 log_progress(completed)
 
-        unverified_ids = _find_unverified_books(client, remaining)
+        unverified_ids = _find_unverified_books(
+            client,
+            remaining,
+            deadline=deadline,
+            clock=clock,
+        )
         if not unverified_ids:
             logger.info("All %d book(s) patched and verified", len(remaining))
             return {}
@@ -219,85 +381,236 @@ def _patch_with_retries(
             PATCH_RETRY_ATTEMPTS,
         )
         if attempt < PATCH_RETRY_ATTEMPTS:
-            sleep(PATCH_RETRY_DELAY_SECONDS)
+            sleep_for(
+                min(
+                    PATCH_RETRY_DELAY_SECONDS,
+                    _remaining_seconds(
+                        deadline, clock, operation="metadata retry delay"
+                    ),
+                )
+            )
     return remaining
 
 
 def _update_books_metadata(
-    client: KomgaClient, h2hconfig: H2HDBConfig, book_ids: set[str]
-) -> None:
+    client: KomgaGateway,
+    catalog_reader: CatalogReader,
+    book_ids: set[str],
+    *,
+    revision: CatalogRevision,
+    deadline: float,
+    clock: Callable[[], float],
+    sleep_for: Callable[[float], None],
+) -> bool:
+    """Return whether a complete pass needed no metadata writes."""
     if not book_ids:
-        logger.info("No new books to check in library %s", client.library_id)
-        return
+        logger.info("No books to check in library %s", client.library_id)
+        return True
 
     logger.info("Fetching Komga metadata for %d book(s)", len(book_ids))
-    books = _fetch_books(client, book_ids)
+    books, failed_book_ids = _fetch_books(
+        client,
+        book_ids,
+        deadline=deadline,
+        clock=clock,
+    )
 
-    h2hdb_metadata_by_name = _get_h2hdb_metadata_by_gallery_names(
-        h2hconfig, [book["name"] for book in books.values()]
+    catalog_metadata_by_name = _get_catalog_metadata_by_book_names(
+        catalog_reader,
+        [book["name"] for book in books.values()],
+        revision=revision,
     )
 
     # BookDto nests title/summary/releaseDate/authors under "metadata" --
     # comparing against the top-level BookDto would never match.
-    updates: dict[str, dict[str, Any]] = {}
+    updates: dict[str, KomgaMetadata] = {}
     for book_id, book in books.items():
-        expected_metadata = h2hdb_metadata_by_name.get(book["name"])
+        expected_metadata = catalog_metadata_by_name.get(book["name"])
         if expected_metadata is None:
             continue
-        expected_metadata = _without_blank_title(expected_metadata)
         if not _book_metadata_is_up_to_date(expected_metadata, book):
             updates[book_id] = expected_metadata
     logger.info("%d of %d book(s) are out of date", len(updates), len(books))
     if not updates:
-        return
+        return not failed_book_ids
 
-    remaining = _patch_with_retries(client, updates)
+    remaining = _patch_with_retries(
+        client,
+        updates,
+        deadline=deadline,
+        clock=clock,
+        sleep_for=sleep_for,
+    )
     if remaining:
         raise RuntimeError(
             f"Komga metadata update did not verify for {len(remaining)} "
             f"book(s): {', '.join(sorted(remaining))}"
         )
+    return False
 
 
-def sync_komga_library(komgaconfig: KomgaConfig, h2hconfig: H2HDBConfig) -> None:
-    client = KomgaClient(komgaconfig)
+def _validate_settling_timing(
+    *,
+    poll_interval_seconds: float,
+    stable_observation_seconds: float,
+    timeout_seconds: float,
+) -> None:
+    if poll_interval_seconds <= 0:
+        raise ValueError("poll_interval_seconds must be positive")
+    if stable_observation_seconds <= 0:
+        raise ValueError("stable_observation_seconds must be positive")
+    if timeout_seconds <= stable_observation_seconds:
+        raise ValueError(
+            "timeout_seconds must be greater than stable_observation_seconds"
+        )
+
+
+def sync_komga_library(
+    komgaconfig: KomgaConfig,
+    catalog_reader: CatalogReader,
+    *,
+    client: KomgaGateway | None = None,
+    clock: Callable[[], float] = monotonic,
+    sleep_for: Callable[[float], None] = sleep,
+    poll_interval_seconds: float = SETTLING_POLL_INTERVAL_SECONDS,
+    stable_observation_seconds: float = SETTLING_STABLE_OBSERVATION_SECONDS,
+    timeout_seconds: float = SETTLING_TIMEOUT_SECONDS,
+) -> None:
+    _validate_settling_timing(
+        poll_interval_seconds=poll_interval_seconds,
+        stable_observation_seconds=stable_observation_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+    active_client: KomgaGateway = (
+        client if client is not None else KomgaClient(komgaconfig)
+    )
+
+    started_at = clock()
+    deadline = started_at + timeout_seconds
 
     if komgaconfig.trigger_scan:
-        logger.info("Triggering scan and analyze for library %s", client.library_id)
+        logger.info(
+            "Triggering scan and analyze for library %s", active_client.library_id
+        )
         # Analyze in particular can run well past REQUEST_TIMEOUT_SECONDS on
         # Komga's side; the caller only needs the job queued, not finished,
         # since the settling loop below re-polls until it's done.
         try:
-            client.scan_library()
+            active_client.scan_library(
+                timeout_seconds=_remaining_seconds(
+                    deadline, clock, operation="scan request"
+                )
+            )
         except requests.exceptions.Timeout:
             logger.info(
                 "Scan request timed out waiting for a response; treating as queued"
             )
         try:
-            client.analyze_library()
+            active_client.analyze_library(
+                timeout_seconds=_remaining_seconds(
+                    deadline, clock, operation="analyze request"
+                )
+            )
         except requests.exceptions.Timeout:
             logger.info(
                 "Analyze request timed out waiting for a response; treating as queued"
             )
 
-    # scan_library/analyze_library are asynchronous jobs on Komga's side, so
-    # keep re-diffing until a pass finds the book/series listings unchanged
-    # -- only then has the library settled.
-    previous_book_ids: set[str] = set()
-    previous_series_ids: set[str] = set()
+    previous_book_ids: set[str] | None = None
+    previous_series_ids: set[str] | None = None
+    previous_catalog_revision: int | None = None
+    stable_since: float | None = None
     while True:
-        book_ids = client.get_book_ids()
-        _update_books_metadata(client, h2hconfig, book_ids - previous_book_ids)
+        if clock() >= deadline:
+            raise TimeoutError(
+                f"Timed out after {timeout_seconds:g}s waiting for Komga library "
+                f"{active_client.library_id} to settle"
+            )
 
-        series_ids = client.get_series_ids()
-        if book_ids == previous_book_ids and series_ids == previous_series_ids:
-            logger.info("Library %s settled; sync complete", client.library_id)
-            return
-
-        logger.info(
-            "Library %s changed since last pass (%d books, %d series); re-scanning",
-            client.library_id,
-            len(book_ids),
-            len(series_ids),
+        revision = catalog_reader.get_catalog_revision()
+        book_ids = active_client.get_book_ids(
+            timeout_seconds=_remaining_seconds(
+                deadline, clock, operation="book pagination"
+            )
         )
+        metadata_was_stable = _update_books_metadata(
+            active_client,
+            catalog_reader,
+            book_ids,
+            revision=revision,
+            deadline=deadline,
+            clock=clock,
+            sleep_for=sleep_for,
+        )
+        series_ids = active_client.get_series_ids(
+            timeout_seconds=_remaining_seconds(
+                deadline, clock, operation="series pagination"
+            )
+        )
+        observed_revision = catalog_reader.get_catalog_revision()
+        observed_at = clock()
+        if observed_at >= deadline:
+            raise TimeoutError(
+                f"Timed out after {timeout_seconds:g}s waiting for Komga library "
+                f"{active_client.library_id} to settle"
+            )
+
+        ids_changed = (
+            previous_book_ids is not None
+            and previous_series_ids is not None
+            and (book_ids != previous_book_ids or series_ids != previous_series_ids)
+        )
+        revision_changed = observed_revision.revision != revision.revision or (
+            previous_catalog_revision is not None
+            and previous_catalog_revision != revision.revision
+        )
+        if metadata_was_stable and not revision_changed:
+            if stable_since is None or ids_changed:
+                stable_since = observed_at
+            stable_for = observed_at - stable_since
+            if stable_for >= stable_observation_seconds:
+                final_revision = catalog_reader.get_catalog_revision()
+                if final_revision.revision == revision.revision:
+                    logger.info(
+                        "Library %s was stable for %.1fs at catalog revision %d; "
+                        "sync complete",
+                        active_client.library_id,
+                        stable_for,
+                        revision.revision,
+                    )
+                    return
+                stable_since = None
+                observed_revision = final_revision
+                logger.info(
+                    "Catalog revision changed during final stability check; "
+                    "polling again"
+                )
+            logger.info(
+                "Library %s stable for %.1f/%.1fs (%d books, %d series)",
+                active_client.library_id,
+                stable_for,
+                stable_observation_seconds,
+                len(book_ids),
+                len(series_ids),
+            )
+        else:
+            stable_since = None
+            if revision_changed:
+                logger.info(
+                    "Catalog revision changed during reconciliation; polling again"
+                )
+            else:
+                logger.info(
+                    "Library %s changed during reconciliation; polling again",
+                    active_client.library_id,
+                )
+
         previous_book_ids, previous_series_ids = book_ids, series_ids
+        previous_catalog_revision = observed_revision.revision
+        remaining_seconds = deadline - clock()
+        if remaining_seconds <= 0:
+            raise TimeoutError(
+                f"Timed out after {timeout_seconds:g}s waiting for Komga library "
+                f"{active_client.library_id} to settle"
+            )
+        sleep_for(min(poll_interval_seconds, remaining_seconds))

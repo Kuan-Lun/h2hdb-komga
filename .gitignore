@@ -16,6 +16,7 @@ tmp
 !.Codex/**
 
 uv.lock
+dist/
 h2hdb.log
 .claude/scheduled_tasks.lock
 

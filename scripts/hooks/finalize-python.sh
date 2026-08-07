@@ -24,9 +24,9 @@
 set -eu
 trap 'exit 2' ERR
 
-PATHS=(src/h2hdb_komga)
+PATHS=(src/h2hdb_komga tests)
 
-uv run black "${PATHS[@]}" >&2
-uv run ruff check --fix "${PATHS[@]}" >&2
-uv run black "${PATHS[@]}" >&2
-uv run mypy "${PATHS[@]}" >&2
+uv run --no-sync black "${PATHS[@]}" >&2
+uv run --no-sync ruff check --fix "${PATHS[@]}" >&2
+uv run --no-sync black "${PATHS[@]}" >&2
+uv run --no-sync mypy "${PATHS[@]}" >&2

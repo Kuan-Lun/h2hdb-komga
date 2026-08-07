@@ -8,26 +8,30 @@ H2HDB-Komga is a small CLI tool that syncs metadata from an
 [H2HDB](https://github.com/Kuan-Lun/h2hdb) database into a
 [Komga](https://komga.org/) library: it triggers a Komga library
 scan/analyze, then walks the books and series in that library and patches
-their Komga metadata (tags, titles) to match what H2HDB has recorded.
+their Komga metadata to match the currently published H2HDB catalog
+revision. H2HDB-Komga is a read-only catalog consumer and never owns or
+migrates the database schema.
 
 The main entry point is:
 
 ```bash
-uv run python -m h2hdb_komga --komgaconfig [komga-config.json] --h2hdbconfig [h2hdb-config.json]
+uv run --no-sync python -m h2hdb_komga --komgaconfig [komga-config.json] --h2hdbconfig [h2hdb-config.json]
 ```
 
-Python must be run through `uv run` so commands use the project virtual
+Python must be run through `uv run --no-sync` so commands use the project virtual
 environment and dependency versions. The Python version requirement is
 defined by `requires-python` in `pyproject.toml`.
 
 ## Common Commands
 
 ```bash
-uv pip install -e ".[dev]" --group dev
-uv run ruff check src/h2hdb_komga
-uv run black src/h2hdb_komga
-uv run mypy src/h2hdb_komga
-uv run pymarkdownlnt fix .
+uv pip install -e ".[dev]"
+uv run --no-sync ruff check src/h2hdb_komga tests
+uv run --no-sync black src/h2hdb_komga tests
+uv run --no-sync mypy src/h2hdb_komga tests
+uv run --no-sync pytest
+uv run --no-sync python -m build
+uv run --no-sync pymarkdownlnt fix .
 ```
 
 If the virtual environment breaks after a Python upgrade or similar toolchain
@@ -39,31 +43,45 @@ change, rebuild it with:
 
 ## Testing
 
-There is no test suite yet. `[dependency-groups] dev` in `pyproject.toml`
-pins `pytest` as groundwork, but no `tests/` directory exists. Because
-`komga.py` talks to a live Komga server and `H2HDB` talks to a live database,
-a future test suite will need to mock/stub those calls rather than hit real
-services.
+The `tests/` suite uses fake `CatalogReader` and Komga gateway implementations;
+it must not require a live database or Komga server. Cover neutral catalog
+mapping, missing artifacts, settling-loop behavior, PATCH verification, and
+the CLI's read-only/compatibility-check bootstrap whenever those boundaries
+change.
 
 ## Module Layout
 
-- `src/h2hdb_komga/config_loader.py` — `KomgaConfig`, a plain `__slots__`
-  value object (`base_url`, `api_username`, `api_password`, `library_id`).
-- `src/h2hdb_komga/komga.py` — all Komga REST API calls (`requests` + HTTP
-  basic auth) and the sync orchestration. Every request function is wrapped
-  in `@retry_request`. `scan_komga_library` is the entry point: scan +
-  analyze the Komga library, then patch book/series metadata for everything
-  new since the previous call, recursing until a pass finds nothing new.
+- `src/h2hdb_komga/config_loader.py` — frozen `KomgaConfig` dataclass and JSON
+  loader.
+- `src/h2hdb_komga/metadata.py` — adapter from neutral core
+  `CatalogPublication` values to Komga metadata. It preserves the raw title
+  when non-blank, summary, release date, every non-empty `h2h:tag:*` subject
+  as its original role/value author pair, and GID. It does not map OPDS
+  contributors or patch Komga tags.
+- `src/h2hdb_komga/komga.py` — thin Komga REST client (`requests` + HTTP basic
+  auth). It raises request failures for the orchestration layer to handle.
+- `src/h2hdb_komga/sync.py` — settling-loop orchestration. Production injects
+  the core `CatalogReader`; tests inject fake reader/client ports. Artifact
+  names first resolve against public artifact-name lookup, including Komga's
+  extensionless CBZ names. Projection names that are a GID or end in `[gid]`
+  fall back to pagination over one pinned revision through the public reader;
+  this also covers collision-disambiguated current projection names. Missing
+  publications are expected and skipped. Every poll reconciles
+  every current book, so transient fetch failures and metadata rewritten by
+  Komga analysis are retried even when IDs do not change. Completion requires
+  an unchanged, write-free observation window; polling has a hard timeout.
 - `src/h2hdb_komga/__main__.py` — CLI argument parsing
-  (`--komgaconfig`, `--h2hdbconfig`), config loading, and the `UpdateKomga`
-  context manager that runs one `scan_komga_library` pass.
+  (`--komgaconfig`, `--h2hdbconfig`, `--timeout-seconds`), read-only core
+  bootstrap inside a disposable worker process, and the outer wall-clock
+  deadline supervisor. The process fence is what makes the CLI timeout hard
+  even when a socket, database gate, or executor thread does not cooperate.
 
 ## Concurrency
 
-`komga.py` dispatches per-book/per-series metadata updates through a
-`concurrent.futures.ThreadPoolExecutor` bounded by `KOMGA_MAX_WORKERS` (10),
-since each call is a handful of sequential HTTP round-trips to Komga and
-H2HDB. Do not reintroduce a dependency on `h2hdb.threading_tools` for this:
+`sync.py` dispatches per-book fetches and verification plus bulk metadata
+PATCH chunks through a `concurrent.futures.ThreadPoolExecutor` bounded by
+`KOMGA_MAX_WORKERS` (10), since each call is an HTTP round-trip to Komga. Do
+not reintroduce a dependency on `h2hdb.threading_tools` for this:
 that module's `ThreadsList` class (a threading+semaphore primitive) was
 removed upstream in h2hdb 0.10.x and replaced with a `multiprocessing`-based
 helper intended for CPU-bound work, which is the wrong concurrency model for
@@ -72,13 +90,17 @@ correct primitive here.
 
 ## Dependency on H2HDB
 
-This package only imports the public surface of `h2hdb` (`H2HDB`,
-`H2HDBConfig`/`load_config`, `DatabaseKeyError` from `h2hdb.sql_connector`).
-The `h2hdb` version constraint in `pyproject.toml` is currently wide
-(`>=0.7.0.9,<2.0.0.0`); h2hdb is pre-1.0 and has broken this package's
-imports across minor versions before. After bumping the installed h2hdb
-version, run `uv run mypy src/h2hdb_komga` to catch API drift before
-assuming the bump is safe.
+This package only imports the top-level public surface of `h2hdb`. Sync code
+depends on `CatalogReader` and neutral catalog models; it must not import core
+connectors or repository internals. The CLI may construct `H2HDB` from a
+`CoreConfig`, but must replace `database.access_mode` with `read-only`, call
+`check_compatibility()`, and never call `migrate()`. The dependency is pinned
+to the compatible core minor line (`>=0.20,<0.21`). Run mypy and the complete
+test suite when changing that range.
+
+This repo intentionally does not commit or depend on `uv.lock`. Rebuild the
+independent virtual environment with editable installs; it is not a uv
+workspace member.
 
 ## Tooling and Style
 
@@ -95,8 +117,7 @@ formatting, or tool versions, update all relevant locations together:
 - `scripts/hooks/finalize-python.sh`
 - `scripts/hooks/finalize-markdown.sh`
 - `.claude/settings.local.json`
-- `[project.optional-dependencies] dev` and `[dependency-groups] dev` in
-  `pyproject.toml`
+- `[project.optional-dependencies] dev` in `pyproject.toml`
 
 Tool versions should be changed in `pyproject.toml`, not through system-wide
 installs.
