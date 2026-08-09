@@ -127,7 +127,7 @@ sync depends on `CatalogReader` and neutral catalog models, not connectors or
 repository internals. The CLI constructs `H2HDB` from `CoreConfig`, forces
 `DatabaseAccessMode.read_only`, and calls only `check_compatibility()` before
 sync. The dependency constraint is the compatible minor line
-`h2hdb>=0.20,<0.21`; re-run mypy and pytest after changing it.
+`h2hdb>=0.21.0.0,<0.22`; re-run mypy and pytest after changing it.
 
 This repository stays independent: there is no uv workspace and `uv.lock` is
 ignored. Use the editable-install rebuild workflow for local multi-repo work.
