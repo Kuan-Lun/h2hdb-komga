@@ -46,8 +46,7 @@ change, rebuild it with:
 The `tests/` suite uses fake `CatalogReader` and Komga gateway implementations;
 it must not require a live database or Komga server. Cover neutral catalog
 mapping, missing artifacts, settling-loop behavior, PATCH verification, and
-the CLI's read-only/compatibility-check bootstrap whenever those boundaries
-change.
+the CLI's read-only public database bootstrap whenever those boundaries change.
 
 ## Module Layout
 
@@ -92,11 +91,12 @@ correct primitive here.
 
 This package only imports the top-level public surface of `h2hdb`. Sync code
 depends on `CatalogReader` and neutral catalog models; it must not import core
-connectors or repository internals. The CLI may construct `H2HDB` from a
-`CoreConfig`, but must replace `database.access_mode` with `read-only`, call
-`check_compatibility()`, and never call `migrate()`. The dependency is pinned
-to the compatible core minor line (`>=0.22.0.1,<0.23`). Run mypy and the complete
-test suite when changing that range.
+connectors or repository internals. The CLI must replace
+`CoreConfig.database.access_mode` with `read-only` and pass that copy to the
+top-level `open_database()` entry point. Core performs the complete epoch-READY
+audit before returning a reader. The CLI must never call `migrate()`. The
+dependency is pinned to the compatible core minor line (`>=0.22.0.2,<0.23`).
+Run mypy and the complete test suite when changing that range.
 
 This repo intentionally does not commit or depend on `uv.lock`. Rebuild the
 independent virtual environment with editable installs; it is not a uv

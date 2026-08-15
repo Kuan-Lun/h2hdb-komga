@@ -124,10 +124,11 @@ I/O-bound HTTP calls) — don't reintroduce that dependency; the stdlib
 
 This package imports only the top-level public surface of `h2hdb`. Runtime
 sync depends on `CatalogReader` and neutral catalog models, not connectors or
-repository internals. The CLI constructs `H2HDB` from `CoreConfig`, forces
-`DatabaseAccessMode.read_only`, and calls only `check_compatibility()` before
-sync. The dependency constraint is the compatible minor line
-`h2hdb>=0.22.0.1,<0.23`; re-run mypy and pytest after changing it.
+repository internals. The CLI copies `CoreConfig` with
+`DatabaseAccessMode.read_only` and passes it to `open_database()`, which runs
+the complete epoch-READY audit before returning a reader. The CLI never owns or
+migrates schema. The dependency constraint is the compatible minor line
+`h2hdb>=0.22.0.2,<0.23`; re-run mypy and pytest after changing it.
 
 This repository stays independent: there is no uv workspace and `uv.lock` is
 ignored. Use the editable-install rebuild workflow for local multi-repo work.

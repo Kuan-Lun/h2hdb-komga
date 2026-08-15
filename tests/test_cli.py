@@ -10,7 +10,7 @@ from h2hdb_komga import config_loader
 from h2hdb_komga.config_loader import KomgaConfig
 
 
-def test_worker_bootstrap_forces_read_only_checks_compatibility_and_never_migrates(
+def test_worker_bootstrap_opens_ready_database_read_only(
     monkeypatch: Any,
 ) -> None:
     events: list[str] = []
@@ -27,32 +27,25 @@ def test_worker_bootstrap_forces_read_only_checks_compatibility_and_never_migrat
         trigger_scan=False,
     )
 
-    class FakeH2HDB:
-        def __init__(self, config: CoreConfig) -> None:
-            self.config = config
-            events.append("constructed")
+    class FakeCatalogReader:
+        pass
 
-        def check_compatibility(self) -> None:
-            events.append("checked")
+    reader = FakeCatalogReader()
+    opened_configs: list[CoreConfig] = []
 
-        def migrate(self) -> None:
-            raise AssertionError("Komga must never migrate the core schema")
-
-    readers: list[FakeH2HDB] = []
-
-    def make_reader(config: CoreConfig) -> FakeH2HDB:
-        reader = FakeH2HDB(config)
-        readers.append(reader)
+    def open_ready_database(config: CoreConfig) -> FakeCatalogReader:
+        opened_configs.append(config)
+        events.append("opened")
         return reader
 
     def sync(
         config: KomgaConfig,
-        reader: FakeH2HDB,
+        selected_reader: FakeCatalogReader,
         *,
         timeout_seconds: float,
     ) -> None:
         assert config is komga_config
-        assert reader is readers[0]
+        assert selected_reader is reader
         assert timeout_seconds == 17
         events.append("synced")
 
@@ -60,12 +53,12 @@ def test_worker_bootstrap_forces_read_only_checks_compatibility_and_never_migrat
         config_loader.KomgaConfig, "from_file", lambda path: komga_config
     )
     monkeypatch.setattr(cli, "load_h2hdb_config", lambda path: original_config)
-    monkeypatch.setattr(cli, "H2HDB", make_reader)
+    monkeypatch.setattr(cli, "open_database", open_ready_database)
     monkeypatch.setattr(cli, "sync_komga_library", sync)
     cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
 
-    assert events == ["constructed", "checked", "synced"]
-    assert readers[0].config.database.access_mode is DatabaseAccessMode.read_only
+    assert events == ["opened", "synced"]
+    assert opened_configs[0].database.access_mode is DatabaseAccessMode.read_only
     assert original_config.database.access_mode is DatabaseAccessMode.read_write
 
 

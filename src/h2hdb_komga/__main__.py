@@ -5,9 +5,9 @@ from collections.abc import Callable, Sequence
 from typing import Protocol, cast
 
 from h2hdb import (
-    H2HDB,
     CoreConfig,
     DatabaseAccessMode,
+    open_database,
 )
 from h2hdb import (
     load_config as load_h2hdb_config,
@@ -71,8 +71,7 @@ def _sync_from_config_paths(
     _configure_logging()
     komga_config = KomgaConfig.from_file(komga_config_path)
     core_config = _read_only_core_config(load_h2hdb_config(h2hdb_config_path))
-    catalog_reader = H2HDB(core_config)
-    catalog_reader.check_compatibility()
+    catalog_reader = open_database(core_config)
     sync_komga_library(
         komga_config,
         catalog_reader,
