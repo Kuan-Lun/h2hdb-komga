@@ -95,7 +95,7 @@ depends on `CatalogReader` and neutral catalog models; it must not import core
 connectors or repository internals. The CLI may construct `H2HDB` from a
 `CoreConfig`, but must replace `database.access_mode` with `read-only`, call
 `check_compatibility()`, and never call `migrate()`. The dependency is pinned
-to the compatible core minor line (`>=0.21.0.0,<0.22`). Run mypy and the complete
+to the compatible core minor line (`>=0.22.0.1,<0.23`). Run mypy and the complete
 test suite when changing that range.
 
 This repo intentionally does not commit or depend on `uv.lock`. Rebuild the
