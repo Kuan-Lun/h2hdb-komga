@@ -14,15 +14,20 @@ class FakeCatalogReader:
         self.publications_by_name = dict(publications_by_name)
         self.artifact_name_calls: list[tuple[str, ...]] = []
         self.artifact_revision_calls: list[int] = []
+        self.artifact_revisions: list[CatalogRevision] = []
         self.revision_calls = 0
         self.current_revision = 1
         self.list_calls: list[tuple[int, int, int]] = []
 
     def get_catalog_revision(self, revision: int | None = None) -> CatalogRevision:
-        del revision
         self.revision_calls += 1
+        return self._revision_at(revision)
+
+    def _revision_at(self, revision: CatalogRevision | int | None) -> CatalogRevision:
+        if isinstance(revision, CatalogRevision):
+            return revision
         return CatalogRevision(
-            revision=self.current_revision,
+            revision=self.current_revision if revision is None else revision,
             published_at=datetime(2026, 8, 1, tzinfo=UTC),
             publication_count=len(self._publications()),
         )
@@ -41,16 +46,17 @@ class FakeCatalogReader:
         query: str | None = None,
         offset: int = 0,
         limit: int = 50,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
         require_artifact: bool = False,
     ) -> CatalogPage:
         assert query is None and not require_artifact
         assert revision is not None
-        assert 1 <= limit <= 200
+        assert 1 <= limit <= 128
+        selected_revision = self._revision_at(revision)
         publications = self._publications()
-        self.list_calls.append((offset, limit, revision.revision))
+        self.list_calls.append((offset, limit, selected_revision.revision))
         return CatalogPage(
-            revision=revision,
+            revision=selected_revision,
             publications=publications[offset : offset + limit],
             offset=offset,
             limit=limit,
@@ -61,7 +67,7 @@ class FakeCatalogReader:
         self,
         publication_id: str,
         *,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
     ) -> CatalogPublication | None:
         del publication_id, revision
         raise AssertionError("get_publication must not be used by Komga sync")
@@ -70,10 +76,12 @@ class FakeCatalogReader:
         self,
         names: Sequence[str],
         *,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
     ) -> Mapping[str, CatalogPublication]:
         assert revision is not None
-        self.artifact_revision_calls.append(revision.revision)
+        selected_revision = self._revision_at(revision)
+        self.artifact_revision_calls.append(selected_revision.revision)
+        self.artifact_revisions.append(selected_revision)
         self.artifact_name_calls.append(tuple(names))
         return {
             name: self.publications_by_name[name]
@@ -85,7 +93,7 @@ class FakeCatalogReader:
         self,
         artifact_id: str,
         *,
-        revision: CatalogRevision | None = None,
+        revision: CatalogRevision | int | None = None,
     ) -> CatalogArtifact | None:
         del artifact_id, revision
         raise AssertionError("get_artifact must not be used by Komga sync")

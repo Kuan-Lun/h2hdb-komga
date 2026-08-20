@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from h2hdb import CatalogContributor, CatalogPublication, CatalogSubject
@@ -72,28 +73,43 @@ def test_blank_raw_title_does_not_overwrite_komga_title() -> None:
 
 def test_artifact_lookup_accepts_komga_name_without_cbz_suffix() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"42-content-address.cbz": publication})
+    reader = FakeCatalogReader({"h2h-42.cbz": publication})
 
     result = _get_catalog_metadata_by_book_names(
         reader,
-        ["42-content-address", "missing", "42-content-address"],
+        ["h2h-42", "h2h-999", "h2h-42"],
     )
 
-    assert result == {"42-content-address": publication_to_komga_metadata(publication)}
+    assert result == {"h2h-42": publication_to_komga_metadata(publication)}
     assert reader.artifact_name_calls == [
         (
-            "42-content-address",
-            "42-content-address.cbz",
-            "missing",
-            "missing.cbz",
+            "h2h-42.cbz",
+            "h2h-999.cbz",
         )
     ]
     assert reader.list_calls == []
 
 
+def test_artifact_lookup_chunks_129_names_on_one_pinned_revision() -> None:
+    publication = _publication()
+    artifact_names = [f"h2h-{gid}.cbz" for gid in range(1, 130)]
+    reader = FakeCatalogReader(dict.fromkeys(artifact_names, publication))
+    revision = reader.get_catalog_revision()
+
+    result = _get_catalog_metadata_by_book_names(
+        reader,
+        [name.removesuffix(".cbz") for name in artifact_names],
+        revision=revision,
+    )
+
+    assert len(result) == 129
+    assert tuple(len(batch) for batch in reader.artifact_name_calls) == (128, 1)
+    assert all(observed is revision for observed in reader.artifact_revisions)
+
+
 def test_friendly_gallery_name_resolves_by_gid_through_public_reader() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"42-content-address.cbz": publication})
+    reader = FakeCatalogReader({"h2h-42.cbz": publication})
 
     result = _get_catalog_metadata_by_book_names(
         reader,
@@ -113,4 +129,26 @@ def test_friendly_gallery_name_resolves_by_gid_through_public_reader() -> None:
         f"42-{'ab' * 32}.cbz": expected,
     }
     assert reader.revision_calls == 1
-    assert reader.list_calls == [(0, 200, 1)]
+    assert reader.artifact_name_calls == []
+    assert reader.list_calls == [(0, 128, 1)]
+
+
+def test_gid_fallback_pages_129_publications_in_bounded_batches() -> None:
+    template = _publication()
+    publications = {
+        f"unmatched-{gid}": replace(
+            template,
+            publication_id=f"urn:h2h:gallery:{gid}",
+            gid=gid,
+        )
+        for gid in range(1, 130)
+    }
+    reader = FakeCatalogReader(publications)
+
+    result = _get_catalog_metadata_by_book_names(reader, ["Friendly [129]"])
+
+    assert result == {
+        "Friendly [129]": publication_to_komga_metadata(publications["unmatched-129"])
+    }
+    assert reader.artifact_name_calls == []
+    assert reader.list_calls == [(0, 128, 1), (128, 128, 1)]

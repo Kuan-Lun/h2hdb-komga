@@ -61,11 +61,12 @@ the CLI's read-only public database bootstrap whenever those boundaries change.
   auth). It raises request failures for the orchestration layer to handle.
 - `src/h2hdb_komga/sync.py` — settling-loop orchestration. Production injects
   the core `CatalogReader`; tests inject fake reader/client ports. Artifact
-  names first resolve against public artifact-name lookup, including Komga's
-  extensionless CBZ names. Projection names that are a GID or end in `[gid]`
-  fall back to pagination over one pinned revision through the public reader;
-  this also covers collision-disambiguated current projection names. Missing
-  publications are expected and skipped. Every poll reconciles
+  names first resolve against public artifact-name lookup, canonicalizing
+  Komga's extensionless `h2h-{gid}` names and issuing batches of at most 128
+  against one pinned revision. Projection names that are a GID or end in
+  `[gid]` fall back to pagination over that same pinned revision through the
+  public reader; this also covers collision-disambiguated current projection
+  names. Missing publications are expected and skipped. Every poll reconciles
   every current book, so transient fetch failures and metadata rewritten by
   Komga analysis are retried even when IDs do not change. Completion requires
   an unchanged, write-free observation window; polling has a hard timeout.
@@ -95,7 +96,7 @@ connectors or repository internals. The CLI must replace
 `CoreConfig.database.access_mode` with `read-only` and pass that copy to the
 top-level `open_database()` entry point. Core performs the complete epoch-READY
 audit before returning a reader. The CLI must never call `migrate()`. The
-dependency is pinned to the compatible core minor line (`>=0.22.0.2,<0.23`).
+dependency is pinned to the compatible core minor line (`>=0.23.0.2,<0.24`).
 Run mypy and the complete test suite when changing that range.
 
 This repo intentionally does not commit or depend on `uv.lock`. Rebuild the

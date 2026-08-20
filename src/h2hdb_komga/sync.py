@@ -31,7 +31,9 @@ PROGRESS_LOG_MAX_INTERVAL_SECONDS = 300
 SETTLING_POLL_INTERVAL_SECONDS = 5.0
 SETTLING_STABLE_OBSERVATION_SECONDS = 30.0
 SETTLING_TIMEOUT_SECONDS = 3600.0
-CATALOG_PAGE_SIZE = 200
+CATALOG_LOOKUP_BATCH_SIZE = 128
+_SIGNED_INT63_MAX = (1 << 63) - 1
+_CANONICAL_ARTIFACT_NAME_PATTERN = re.compile(r"^h2h-([1-9][0-9]{0,18})\.cbz$")
 FRIENDLY_GALLERY_GID_PATTERN = re.compile(r"\[(\d+)]$")
 CONTENT_ADDRESSED_GID_PATTERN = re.compile(
     r"^(\d+)-[0-9a-f]{64}(?:-[0-9a-f]{32})?$",
@@ -97,9 +99,11 @@ def _progress_logger(
 
 
 def _artifact_name_candidates(book_name: str) -> tuple[str, ...]:
-    if book_name.casefold().endswith(".cbz"):
-        return (book_name,)
-    return (book_name, f"{book_name}.cbz")
+    candidate = book_name if book_name.endswith(".cbz") else f"{book_name}.cbz"
+    match = _CANONICAL_ARTIFACT_NAME_PATTERN.fullmatch(candidate)
+    if match is None or int(match.group(1)) > _SIGNED_INT63_MAX:
+        return ()
+    return (candidate,)
 
 
 def _friendly_gallery_gid(book_name: str) -> int | None:
@@ -132,7 +136,7 @@ def _publications_by_gids(
     while offset < revision.publication_count and len(result) < len(gids):
         page = catalog_reader.list_publications(
             offset=offset,
-            limit=CATALOG_PAGE_SIZE,
+            limit=CATALOG_LOOKUP_BATCH_SIZE,
             revision=revision,
         )
         for publication in page.publications:
@@ -165,10 +169,15 @@ def _get_catalog_metadata_by_book_names(
             for candidate in candidates
         )
     )
-    publications_by_artifact = catalog_reader.get_publications_by_artifact_names(
-        artifact_candidates,
-        revision=selected_revision,
-    )
+    publications_by_artifact: dict[str, CatalogPublication] = {}
+    for offset in range(0, len(artifact_candidates), CATALOG_LOOKUP_BATCH_SIZE):
+        batch = artifact_candidates[offset : offset + CATALOG_LOOKUP_BATCH_SIZE]
+        publications_by_artifact.update(
+            catalog_reader.get_publications_by_artifact_names(
+                batch,
+                revision=selected_revision,
+            )
+        )
 
     publications_by_name: dict[str, CatalogPublication] = {}
     for name, candidates in candidates_by_name.items():

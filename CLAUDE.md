@@ -81,11 +81,13 @@ rather than working around it.
 - `sync.py` — orchestration over injected `CatalogReader` and Komga gateway
   ports. `sync_komga_library` is the entry point: scan + analyze the library,
   then repeatedly diff Komga book metadata against the published core catalog
-  and patch what's out of date. It resolves current artifact names through the
-  public artifact lookup, accepting names with or without `.cbz`. A projection
-  name that is a numeric GID or ends in `[gid]` is resolved through public,
-  revision-pinned catalog pagination; this includes collision-disambiguated
-  current projection names. Every polling pass re-fetches
+  and patch what's out of date. It resolves canonical `h2h-{gid}.cbz` artifact
+  names through the public artifact lookup, adding the suffix for Komga's
+  extensionless form and batching at most 128 names against one pinned
+  revision. A projection name that is a numeric GID or ends in `[gid]` is
+  resolved through public pagination pinned to that same revision; this
+  includes collision-disambiguated current projection names. Every polling
+  pass re-fetches
   every current book, including books whose IDs were present on earlier
   passes, so transient GET failures and metadata rewritten by asynchronous
   analysis are retried.
@@ -128,7 +130,7 @@ repository internals. The CLI copies `CoreConfig` with
 `DatabaseAccessMode.read_only` and passes it to `open_database()`, which runs
 the complete epoch-READY audit before returning a reader. The CLI never owns or
 migrates schema. The dependency constraint is the compatible minor line
-`h2hdb>=0.22.0.2,<0.23`; re-run mypy and pytest after changing it.
+`h2hdb>=0.23.0.2,<0.24`; re-run mypy and pytest after changing it.
 
 This repository stays independent: there is no uv workspace and `uv.lock` is
 ignored. Use the editable-install rebuild workflow for local multi-repo work.
