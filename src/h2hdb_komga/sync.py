@@ -32,8 +32,6 @@ SETTLING_POLL_INTERVAL_SECONDS = 5.0
 SETTLING_STABLE_OBSERVATION_SECONDS = 30.0
 SETTLING_TIMEOUT_SECONDS = 3600.0
 CATALOG_LOOKUP_BATCH_SIZE = 128
-_SIGNED_INT63_MAX = (1 << 63) - 1
-_CANONICAL_ARTIFACT_NAME_PATTERN = re.compile(r"^h2h-([1-9][0-9]{0,18})\.cbz$")
 FRIENDLY_GALLERY_GID_PATTERN = re.compile(r"\[(\d+)]$")
 CONTENT_ADDRESSED_GID_PATTERN = re.compile(
     r"^(\d+)-[0-9a-f]{64}(?:-[0-9a-f]{32})?$",
@@ -99,11 +97,9 @@ def _progress_logger(
 
 
 def _artifact_name_candidates(book_name: str) -> tuple[str, ...]:
-    candidate = book_name if book_name.endswith(".cbz") else f"{book_name}.cbz"
-    match = _CANONICAL_ARTIFACT_NAME_PATTERN.fullmatch(candidate)
-    if match is None or int(match.group(1)) > _SIGNED_INT63_MAX:
-        return ()
-    return (candidate,)
+    if book_name.casefold().endswith(".cbz"):
+        return (book_name,)
+    return (book_name, f"{book_name}.cbz")
 
 
 def _friendly_gallery_gid(book_name: str) -> int | None:

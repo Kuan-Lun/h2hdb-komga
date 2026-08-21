@@ -8,8 +8,4 @@ cd "$REPO_ROOT"
 
 uv venv --clear --python 3.14 .venv
 
-EDITABLES=(-e ".[dev]")
-if [[ -f ../h2hdb.clone/pyproject.toml ]]; then
-    EDITABLES+=(-e ../h2hdb.clone)
-fi
-uv pip install --python .venv/bin/python "${EDITABLES[@]}"
+uv pip install --python .venv/bin/python -e ".[dev]"

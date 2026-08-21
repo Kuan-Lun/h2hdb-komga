@@ -12,19 +12,19 @@ Komga, and this adapter does not patch Komga's `tags` field. When the original
 gallery title is blank, the title field is also omitted so Komga keeps its
 existing display title.
 
-Canonical `h2h-{gid}.cbz` artifact names are matched through the public lookup,
-whether Komga includes the `.cbz` suffix or not; large libraries are queried in
-batches of at most 128 against one pinned revision. A physical
-`gid-sha256.cbz` storage name, a pure GID, and a friendly name ending in `[gid]`
-are resolved against that same pinned revision through public catalog
-pagination. A revision change resets the stability window, and completion
-performs a final revision check. This adapter never reads
-`CatalogArtifact.location` or any core repository internals. Books with no
-published match are left unchanged.
+Published friendly artifact names are matched directly through the public
+lookup, whether Komga includes the `.cbz` suffix or not; lookup candidates are
+queried in batches of at most 128 against one pinned revision. When direct
+lookup does not match, a physical `gid-sha256.cbz` storage name, a pure GID, or
+a friendly name ending in `[gid]` is resolved against that same pinned revision
+through public catalog pagination. A revision change resets the stability
+window, and completion performs a final revision check. This adapter never
+reads `CatalogArtifact.location` or any core repository internals. Books with
+no published match are left unchanged.
 
-The H2HDB database is always opened in read-only mode. Startup performs a
-complete epoch-READY audit through H2HDB core's public database opener but never
-runs migrations; schema ownership stays with H2HDB core.
+The H2HDB database is always opened in read-only mode. Startup performs the
+core schema compatibility check through H2HDB's public database opener but
+never runs migrations; schema ownership stays with H2HDB core.
 
 ---
 
@@ -91,7 +91,7 @@ documented hard timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.23.0.2,<0.24`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.22.0.2,<0.23`. Any
 configured database access mode is overridden to `read-only` by this CLI.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
 for a dedicated read-only database account and password.
@@ -99,14 +99,17 @@ for a dedicated read-only database account and password.
 ## Local Development
 
 This repository has its own uv virtual environment and intentionally ignores
-`uv.lock`; it is not part of an uv workspace. For adjacent local clones:
+`uv.lock`; it is not part of an uv workspace. Rebuild it with the project
+script:
 
 ```bash
-uv venv
-uv pip install -e ../h2hdb.clone
-uv pip install -e ".[dev]"
+./scripts/rebuild-env.sh
 uv run --no-sync pytest
 ```
+
+The script installs this project in editable mode and resolves the published
+compatible H2HDB core. It deliberately does not install an adjacent
+`h2hdb.clone`, which may track an incompatible core minor line.
 
 ---
 

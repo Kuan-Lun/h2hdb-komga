@@ -10,7 +10,7 @@ from h2hdb_komga import config_loader
 from h2hdb_komga.config_loader import KomgaConfig
 
 
-def test_worker_bootstrap_opens_ready_database_read_only(
+def test_worker_bootstrap_opens_compatible_database_read_only(
     monkeypatch: Any,
 ) -> None:
     events: list[str] = []
@@ -33,7 +33,7 @@ def test_worker_bootstrap_opens_ready_database_read_only(
     reader = FakeCatalogReader()
     opened_configs: list[CoreConfig] = []
 
-    def open_ready_database(config: CoreConfig) -> FakeCatalogReader:
+    def open_compatible_database(config: CoreConfig) -> FakeCatalogReader:
         opened_configs.append(config)
         events.append("opened")
         return reader
@@ -53,7 +53,7 @@ def test_worker_bootstrap_opens_ready_database_read_only(
         config_loader.KomgaConfig, "from_file", lambda path: komga_config
     )
     monkeypatch.setattr(cli, "load_h2hdb_config", lambda path: original_config)
-    monkeypatch.setattr(cli, "open_database", open_ready_database)
+    monkeypatch.setattr(cli, "open_database", open_compatible_database)
     monkeypatch.setattr(cli, "sync_komga_library", sync)
     cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
 

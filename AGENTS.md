@@ -61,9 +61,9 @@ the CLI's read-only public database bootstrap whenever those boundaries change.
   auth). It raises request failures for the orchestration layer to handle.
 - `src/h2hdb_komga/sync.py` — settling-loop orchestration. Production injects
   the core `CatalogReader`; tests inject fake reader/client ports. Artifact
-  names first resolve against public artifact-name lookup, canonicalizing
-  Komga's extensionless `h2h-{gid}` names and issuing batches of at most 128
-  against one pinned revision. Projection names that are a GID or end in
+  names first resolve against public artifact-name lookup, trying the exact
+  Komga name and its `.cbz` form in batches of at most 128 against one pinned
+  revision. Names that are a GID, a content-addressed storage name, or end in
   `[gid]` fall back to pagination over that same pinned revision through the
   public reader; this also covers collision-disambiguated current projection
   names. Missing publications are expected and skipped. Every poll reconciles
@@ -94,14 +94,15 @@ This package only imports the top-level public surface of `h2hdb`. Sync code
 depends on `CatalogReader` and neutral catalog models; it must not import core
 connectors or repository internals. The CLI must replace
 `CoreConfig.database.access_mode` with `read-only` and pass that copy to the
-top-level `open_database()` entry point. Core performs the complete epoch-READY
-audit before returning a reader. The CLI must never call `migrate()`. The
-dependency is pinned to the compatible core minor line (`>=0.23.0.2,<0.24`).
+top-level `open_database()` entry point. Core performs its schema compatibility
+check before returning a reader. The CLI must never call `migrate()`. The
+dependency is pinned to the compatible core minor line (`>=0.22.0.2,<0.23`).
 Run mypy and the complete test suite when changing that range.
 
 This repo intentionally does not commit or depend on `uv.lock`. Rebuild the
-independent virtual environment with editable installs; it is not a uv
-workspace member.
+independent virtual environment with an editable install of this project;
+resolve core from the package index rather than an adjacent clone that may be
+on an incompatible minor line. This repo is not a uv workspace member.
 
 ## Tooling and Style
 

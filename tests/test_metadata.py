@@ -73,32 +73,37 @@ def test_blank_raw_title_does_not_overwrite_komga_title() -> None:
 
 def test_artifact_lookup_accepts_komga_name_without_cbz_suffix() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"h2h-42.cbz": publication})
+    artifact_name = "[Artist] Friendly Gallery [42].cbz"
+    reader = FakeCatalogReader({artifact_name: publication})
 
     result = _get_catalog_metadata_by_book_names(
         reader,
-        ["h2h-42", "h2h-999", "h2h-42"],
+        ["[Artist] Friendly Gallery [42]", "missing", "missing"],
     )
 
-    assert result == {"h2h-42": publication_to_komga_metadata(publication)}
+    assert result == {
+        "[Artist] Friendly Gallery [42]": publication_to_komga_metadata(publication)
+    }
     assert reader.artifact_name_calls == [
         (
-            "h2h-42.cbz",
-            "h2h-999.cbz",
+            "[Artist] Friendly Gallery [42]",
+            artifact_name,
+            "missing",
+            "missing.cbz",
         )
     ]
     assert reader.list_calls == []
 
 
-def test_artifact_lookup_chunks_129_names_on_one_pinned_revision() -> None:
+def test_artifact_lookup_chunks_129_friendly_names_on_one_pinned_revision() -> None:
     publication = _publication()
-    artifact_names = [f"h2h-{gid}.cbz" for gid in range(1, 130)]
+    artifact_names = [f"Friendly Gallery [{gid}].cbz" for gid in range(1, 130)]
     reader = FakeCatalogReader(dict.fromkeys(artifact_names, publication))
     revision = reader.get_catalog_revision()
 
     result = _get_catalog_metadata_by_book_names(
         reader,
-        [name.removesuffix(".cbz") for name in artifact_names],
+        artifact_names,
         revision=revision,
     )
 
@@ -109,7 +114,7 @@ def test_artifact_lookup_chunks_129_names_on_one_pinned_revision() -> None:
 
 def test_friendly_gallery_name_resolves_by_gid_through_public_reader() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"h2h-42.cbz": publication})
+    reader = FakeCatalogReader({"catalog-only": publication})
 
     result = _get_catalog_metadata_by_book_names(
         reader,
@@ -129,7 +134,15 @@ def test_friendly_gallery_name_resolves_by_gid_through_public_reader() -> None:
         f"42-{'ab' * 32}.cbz": expected,
     }
     assert reader.revision_calls == 1
-    assert reader.artifact_name_calls == []
+    assert reader.artifact_name_calls == [
+        (
+            "[Artist] Friendly Gallery [42]",
+            "[Artist] Friendly Gallery [42].cbz",
+            "42",
+            "42.cbz",
+            f"42-{'ab' * 32}.cbz",
+        )
+    ]
     assert reader.list_calls == [(0, 128, 1)]
 
 
@@ -150,5 +163,5 @@ def test_gid_fallback_pages_129_publications_in_bounded_batches() -> None:
     assert result == {
         "Friendly [129]": publication_to_komga_metadata(publications["unmatched-129"])
     }
-    assert reader.artifact_name_calls == []
+    assert reader.artifact_name_calls == [("Friendly [129]", "Friendly [129].cbz")]
     assert reader.list_calls == [(0, 128, 1), (128, 128, 1)]
