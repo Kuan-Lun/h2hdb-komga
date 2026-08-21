@@ -128,14 +128,14 @@ This package imports only the top-level public surface of `h2hdb`. Runtime
 sync depends on `CatalogReader` and neutral catalog models, not connectors or
 repository internals. The CLI copies `CoreConfig` with
 `DatabaseAccessMode.read_only` and passes it to `open_database()`, which runs
-the core schema compatibility check before returning a reader. The CLI never
-owns or migrates schema. The dependency constraint is the compatible minor
-line `h2hdb>=0.22.0.2,<0.23`; re-run mypy and pytest after changing it.
+the exact epoch-2 `READY` audit before returning a reader. The CLI never owns
+or migrates schema. The dependency constraint is the compatible minor line
+`h2hdb>=0.23.0.3,<0.24`; re-run mypy and pytest after changing it.
 
 This repository stays independent: there is no uv workspace and `uv.lock` is
 ignored. The rebuild script installs this project editable and resolves core
-from the package index, not an adjacent clone that may be on an incompatible
-minor line.
+from the package index, not an adjacent clone that may be an unpublished
+revision.
 
 ## Keeping this file in sync
 

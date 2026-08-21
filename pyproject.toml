@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "h2hdb-komga"
-version = "0.4.6"
+version = "0.5.0"
 description = ""
 readme = "README.md"
 authors = [{ name = "Kuan-Lun Wang" }]
 license = { text = "GNU Affero General Public License v3" }
-dependencies = ["h2hdb>=0.22.0.2,<0.23", "requests>=2.34.2,<3.0.0"]
+dependencies = ["h2hdb>=0.23.0.3,<0.24", "requests>=2.34.2,<3.0.0"]
 requires-python = ">=3.14"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -23,8 +23,8 @@ classifiers = [
 dev = [
     "build>=1.5.0",
     "black>=26.5.1",
-    "ruff>=0.16.3",
-    "mypy>=2.3.0",
+    "ruff>=0.16.4",
+    "mypy>=2.3.1",
     "pymarkdownlnt>=0.9.39",
     "pytest>=9.1.1",
 ]

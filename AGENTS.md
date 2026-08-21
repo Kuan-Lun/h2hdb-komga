@@ -94,15 +94,16 @@ This package only imports the top-level public surface of `h2hdb`. Sync code
 depends on `CatalogReader` and neutral catalog models; it must not import core
 connectors or repository internals. The CLI must replace
 `CoreConfig.database.access_mode` with `read-only` and pass that copy to the
-top-level `open_database()` entry point. Core performs its schema compatibility
-check before returning a reader. The CLI must never call `migrate()`. The
-dependency is pinned to the compatible core minor line (`>=0.22.0.2,<0.23`).
+top-level `open_database()` entry point. Core performs its exact epoch-2
+`READY` audit before returning a reader. The CLI must never call `migrate()`.
+The dependency is pinned to the compatible core minor line
+(`>=0.23.0.3,<0.24`).
 Run mypy and the complete test suite when changing that range.
 
 This repo intentionally does not commit or depend on `uv.lock`. Rebuild the
 independent virtual environment with an editable install of this project;
 resolve core from the package index rather than an adjacent clone that may be
-on an incompatible minor line. This repo is not a uv workspace member.
+an unpublished revision. This repo is not a uv workspace member.
 
 ## Tooling and Style
 

@@ -23,8 +23,8 @@ reads `CatalogArtifact.location` or any core repository internals. Books with
 no published match are left unchanged.
 
 The H2HDB database is always opened in read-only mode. Startup performs the
-core schema compatibility check through H2HDB's public database opener but
-never runs migrations; schema ownership stays with H2HDB core.
+exact epoch-2 `READY` audit through H2HDB's public database opener but never
+initializes or migrates schema; schema ownership stays with H2HDB core.
 
 ---
 
@@ -91,7 +91,7 @@ documented hard timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.22.0.2,<0.23`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.23.0.3,<0.24`. Any
 configured database access mode is overridden to `read-only` by this CLI.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
 for a dedicated read-only database account and password.
@@ -109,7 +109,7 @@ uv run --no-sync pytest
 
 The script installs this project in editable mode and resolves the published
 compatible H2HDB core. It deliberately does not install an adjacent
-`h2hdb.clone`, which may track an incompatible core minor line.
+`h2hdb.clone`, which may track an unpublished core revision.
 
 ---
 
