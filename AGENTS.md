@@ -2,6 +2,11 @@
 
 Guidance for coding agents working in this repository.
 
+## Branch Policy
+
+- Do not create a development branch or switch to any non-primary branch.
+- Make all development changes directly on `master`.
+
 ## Project Overview
 
 H2HDB-Komga is a small CLI tool that syncs metadata from an

@@ -3,6 +3,11 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with
 code in this repository.
 
+## Branch Policy
+
+- Do not create a development branch or switch to any non-primary branch.
+- Make all development changes directly on `master`.
+
 ## Communication
 
 - Claude 必須以繁體中文回答所有對話內容，不論使用者以何種語言提問；程式碼、指令、檔名、專有名詞等仍維持原文。
