@@ -6,6 +6,7 @@ from h2hdb import (
     CatalogPage,
     CatalogPublication,
     CatalogRevision,
+    CatalogRevisionNotFoundError,
 )
 
 
@@ -24,10 +25,15 @@ class FakeCatalogReader:
         return self._revision_at(revision)
 
     def _revision_at(self, revision: CatalogRevision | int | None) -> CatalogRevision:
+        selected = (
+            revision.revision if isinstance(revision, CatalogRevision) else revision
+        )
+        if selected is not None and selected != self.current_revision:
+            raise CatalogRevisionNotFoundError(selected)
         if isinstance(revision, CatalogRevision):
             return revision
         return CatalogRevision(
-            revision=self.current_revision if revision is None else revision,
+            revision=self.current_revision,
             published_at=datetime(2026, 8, 1, tzinfo=UTC),
             publication_count=len(self._publications()),
         )

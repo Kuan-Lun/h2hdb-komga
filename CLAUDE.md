@@ -91,11 +91,12 @@ rather than working around it.
   `.cbz` form in batches of at most 128 against one pinned revision. A name
   that is a numeric GID, a content-addressed storage name, or ends in `[gid]`
   falls back to public pagination pinned to that same revision; this includes
-  collision-disambiguated current projection names. Every polling pass
-  re-fetches
-  every current book, including books whose IDs were present on earlier
-  passes, so transient GET failures and metadata rewritten by asynchronous
-  analysis are retried.
+  collision-disambiguated current projection names. If the core head advances
+  during a pinned lookup, the whole pass is discarded before any PATCH is
+  constructed and the next poll resolves a fresh current head; results from two
+  heads are never combined. Every polling pass re-fetches every current book,
+  including books whose IDs were present on earlier passes, so transient GET
+  failures and metadata rewritten by asynchronous analysis are retried.
   The library is complete only after book/series IDs remain unchanged and a
   complete metadata pass needs no write for
   `SETTLING_STABLE_OBSERVATION_SECONDS`; polling sleeps between passes and
@@ -135,7 +136,7 @@ repository internals. The CLI copies `CoreConfig` with
 `DatabaseAccessMode.read_only` and passes it to `open_database()`, which runs
 the exact epoch-2 `READY` audit before returning a reader. The CLI never owns
 or migrates schema. The dependency constraint is the compatible minor line
-`h2hdb>=0.23.0.10,<0.24`; re-run mypy and pytest after changing it.
+`h2hdb>=0.23.0.11,<0.24`; re-run mypy and pytest after changing it.
 
 This repository stays independent: there is no uv workspace and `uv.lock` is
 ignored. The rebuild script installs this project editable and resolves core

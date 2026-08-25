@@ -83,15 +83,18 @@ book. It exits only after book/series IDs and metadata remain stable for 30
 seconds; the default timeout is one hour and can be changed with
 `--timeout-seconds`. This observation window allows Komga's asynchronous
 scan/analyze jobs and transient book fetch failures to become visible before
-completion. Each HTTP request, PATCH verification, retry, and retry delay uses
-the remaining cooperative budget. The CLI also runs the complete operation in
-a disposable worker process and kills it at the wall-clock deadline, so a
-slow-drip socket, blocked database gate, or executor shutdown cannot extend the
-documented hard timeout indefinitely.
+completion. Every catalog lookup in one pass is pinned to the same current
+H2HDB head. If publication advances during a batched lookup or pagination, the
+partial pass is discarded before metadata is patched and the next poll starts
+again from the new head. Each HTTP request, PATCH verification, retry, and retry
+delay uses the remaining cooperative budget. The CLI also runs the complete
+operation in a disposable worker process and kills it at the wall-clock
+deadline, so a slow-drip socket, blocked database gate, or executor shutdown
+cannot extend the documented hard timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.23.0.10,<0.24`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.23.0.11,<0.24`. Any
 configured database access mode is overridden to `read-only` by this CLI.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
 for a dedicated read-only database account and password.

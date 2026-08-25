@@ -1,10 +1,12 @@
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 import requests
-from h2hdb import CatalogPublication, CatalogRevision
+from h2hdb import CatalogPage, CatalogPublication, CatalogRevision
 
 from h2hdb_komga.config_loader import KomgaConfig
 from h2hdb_komga.metadata import KomgaMetadata, publication_to_komga_metadata
@@ -90,6 +92,18 @@ def _publication() -> CatalogPublication:
         language="en",
         published_at=datetime(2025, 1, 2, tzinfo=UTC),
         modified_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+
+
+def _publication_for_gid(gid: int) -> CatalogPublication:
+    return replace(
+        _publication(),
+        publication_id=f"urn:h2h:gallery:{gid}",
+        gid=gid,
+        source_gallery_name=f"Gallery {gid} [{gid}]",
+        source_title=f"Gallery {gid}",
+        title=f"Gallery {gid}",
+        sort_title=f"gallery {gid}",
     )
 
 
@@ -309,6 +323,116 @@ def test_catalog_revision_change_resets_settling_and_pins_each_pass() -> None:
     assert reader.artifact_revision_calls[0] == 1
     assert set(reader.artifact_revision_calls[1:]) == {2}
     assert clock.sleep_calls == [1, 1]
+
+
+def test_head_advance_during_artifact_name_lookup_restarts_whole_pass() -> None:
+    publication = _publication()
+    book_names = tuple(f"gallery-{index:03}" for index in range(65))
+
+    class ArtifactLookupRaceReader(FakeCatalogReader):
+        def __init__(self) -> None:
+            super().__init__(dict.fromkeys(book_names, publication))
+            self.attempted_revisions: list[int] = []
+
+        def get_publications_by_artifact_names(
+            self,
+            names: Sequence[str],
+            *,
+            revision: CatalogRevision | int | None = None,
+        ) -> Mapping[str, CatalogPublication]:
+            assert isinstance(revision, CatalogRevision)
+            self.attempted_revisions.append(revision.revision)
+            if len(self.attempted_revisions) == 2:
+                self.current_revision = 2
+            return super().get_publications_by_artifact_names(
+                names,
+                revision=revision,
+            )
+
+    reader = ArtifactLookupRaceReader()
+    client = FakeKomgaClient()
+    client.books = {
+        f"book-{index:03}": {"name": name, "metadata": {}}
+        for index, name in enumerate(book_names)
+    }
+    clock = FakeClock()
+
+    sync_komga_library(
+        _config(client, trigger_scan=False),
+        reader,
+        client=client,
+        clock=clock,
+        sleep_for=clock.sleep,
+        poll_interval_seconds=1,
+        stable_observation_seconds=1,
+        timeout_seconds=10,
+    )
+
+    assert reader.attempted_revisions[:2] == [1, 1]
+    assert set(reader.attempted_revisions[2:]) == {2}
+    assert reader.artifact_revision_calls[0] == 1
+    assert set(reader.artifact_revision_calls[1:]) == {2}
+    assert len(client.patch_calls) == 1
+    assert set(client.patch_calls[0]) == set(client.books)
+
+
+def test_head_advance_during_catalog_pagination_restarts_whole_pass() -> None:
+    publications = tuple(_publication_for_gid(gid) for gid in range(1, 130))
+
+    class PaginationRaceReader(FakeCatalogReader):
+        def __init__(self) -> None:
+            super().__init__(
+                {
+                    f"catalog-{publication.gid}.cbz": publication
+                    for publication in publications
+                }
+            )
+            self.attempted_revisions: list[int] = []
+
+        def list_publications(
+            self,
+            *,
+            query: str | None = None,
+            offset: int = 0,
+            limit: int = 50,
+            revision: CatalogRevision | int | None = None,
+            require_artifact: bool = False,
+        ) -> CatalogPage:
+            assert isinstance(revision, CatalogRevision)
+            self.attempted_revisions.append(revision.revision)
+            if len(self.attempted_revisions) == 2:
+                self.current_revision = 2
+            return super().list_publications(
+                query=query,
+                offset=offset,
+                limit=limit,
+                revision=revision,
+                require_artifact=require_artifact,
+            )
+
+    reader = PaginationRaceReader()
+    client = FakeKomgaClient()
+    client.books = {"book-target": {"name": "129", "metadata": {}}}
+    clock = FakeClock()
+
+    sync_komga_library(
+        _config(client, trigger_scan=False),
+        reader,
+        client=client,
+        clock=clock,
+        sleep_for=clock.sleep,
+        poll_interval_seconds=1,
+        stable_observation_seconds=1,
+        timeout_seconds=10,
+    )
+
+    assert reader.attempted_revisions[:2] == [1, 1]
+    assert set(reader.attempted_revisions[2:]) == {2}
+    assert reader.list_calls[0] == (0, 128, 1)
+    assert all(revision == 2 for _offset, _limit, revision in reader.list_calls[1:])
+    assert client.patch_calls == [
+        {"book-target": publication_to_komga_metadata(publications[-1])}
+    ]
 
 
 def test_hard_deadline_is_checked_inside_a_reconciliation_pass() -> None:

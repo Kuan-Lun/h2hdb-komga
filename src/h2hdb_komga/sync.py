@@ -8,7 +8,12 @@ from time import monotonic, sleep
 from typing import Any, Protocol
 
 import requests
-from h2hdb import CatalogPublication, CatalogReader, CatalogRevision
+from h2hdb import (
+    CatalogPublication,
+    CatalogReader,
+    CatalogRevision,
+    CatalogRevisionNotFoundError,
+)
 
 from .config_loader import KomgaConfig
 from .komga import PATCH_TIMEOUT_SECONDS, KomgaClient
@@ -538,15 +543,37 @@ def sync_komga_library(
                 deadline, clock, operation="book pagination"
             )
         )
-        metadata_was_stable = _update_books_metadata(
-            active_client,
-            catalog_reader,
-            book_ids,
-            revision=revision,
-            deadline=deadline,
-            clock=clock,
-            sleep_for=sleep_for,
-        )
+        try:
+            metadata_was_stable = _update_books_metadata(
+                active_client,
+                catalog_reader,
+                book_ids,
+                revision=revision,
+                deadline=deadline,
+                clock=clock,
+                sleep_for=sleep_for,
+            )
+        except CatalogRevisionNotFoundError:
+            # Core accepts only the current head.  A head advance between any
+            # two bounded artifact-name or pagination reads invalidates the
+            # whole metadata map before a PATCH can be constructed.  Discard
+            # every observation from that pass and retry from a fresh head.
+            previous_book_ids = None
+            previous_series_ids = None
+            previous_catalog_revision = None
+            stable_since = None
+            logger.info(
+                "Catalog head advanced during pinned reconciliation; "
+                "restarting from the current head"
+            )
+            remaining_seconds = deadline - clock()
+            if remaining_seconds <= 0:
+                raise TimeoutError(
+                    f"Timed out after {timeout_seconds:g}s waiting for Komga "
+                    f"library {active_client.library_id} to settle"
+                )
+            sleep_for(min(poll_interval_seconds, remaining_seconds))
+            continue
         series_ids = active_client.get_series_ids(
             timeout_seconds=_remaining_seconds(
                 deadline, clock, operation="series pagination"

@@ -73,10 +73,13 @@ the CLI's read-only public database bootstrap whenever those boundaries change.
   revision. Names that are a GID, a content-addressed storage name, or end in
   `[gid]` fall back to pagination over that same pinned revision through the
   public reader; this also covers collision-disambiguated current projection
-  names. Missing publications are expected and skipped. Every poll reconciles
-  every current book, so transient fetch failures and metadata rewritten by
-  Komga analysis are retried even when IDs do not change. Completion requires
-  an unchanged, write-free observation window; polling has a hard timeout.
+  names. If the core head advances during any pinned lookup, discard the whole
+  pass before constructing a PATCH and restart from a freshly resolved current
+  head; never combine lookup results from two heads. Missing publications are
+  expected and skipped. Every poll reconciles every current book, so transient
+  fetch failures and metadata rewritten by Komga analysis are retried even when
+  IDs do not change. Completion requires an unchanged, write-free observation
+  window; polling has a hard timeout.
 - `src/h2hdb_komga/__main__.py` — CLI argument parsing
   (`--komgaconfig`, `--h2hdbconfig`, `--timeout-seconds`), read-only core
   bootstrap inside a disposable worker process, and the outer wall-clock
@@ -104,7 +107,7 @@ connectors or repository internals. The CLI must replace
 top-level `open_database()` entry point. Core performs its exact epoch-2
 `READY` audit before returning a reader. The CLI must never call `migrate()`.
 The dependency is pinned to the compatible core minor line
-(`>=0.23.0.10,<0.24`).
+(`>=0.23.0.11,<0.24`).
 Run mypy and the complete test suite when changing that range.
 
 This repo intentionally does not commit or depend on `uv.lock`. Rebuild the
