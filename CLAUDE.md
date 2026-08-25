@@ -135,7 +135,7 @@ repository internals. The CLI copies `CoreConfig` with
 `DatabaseAccessMode.read_only` and passes it to `open_database()`, which runs
 the exact epoch-2 `READY` audit before returning a reader. The CLI never owns
 or migrates schema. The dependency constraint is the compatible minor line
-`h2hdb>=0.23.0.4,<0.24`; re-run mypy and pytest after changing it.
+`h2hdb>=0.23.0.9,<0.24`; re-run mypy and pytest after changing it.
 
 This repository stays independent: there is no uv workspace and `uv.lock` is
 ignored. The rebuild script installs this project editable and resolves core

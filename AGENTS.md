@@ -102,7 +102,7 @@ connectors or repository internals. The CLI must replace
 top-level `open_database()` entry point. Core performs its exact epoch-2
 `READY` audit before returning a reader. The CLI must never call `migrate()`.
 The dependency is pinned to the compatible core minor line
-(`>=0.23.0.4,<0.24`).
+(`>=0.23.0.9,<0.24`).
 Run mypy and the complete test suite when changing that range.
 
 This repo intentionally does not commit or depend on `uv.lock`. Rebuild the
