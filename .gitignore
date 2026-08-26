@@ -1,23 +1,29 @@
 .*
-__pycache__
-*.pyc
-*.pyo
-*.egg-info
-tmp
+__pycache__/
+*.py[cod]
+*.egg-info/
+tmp/
 
 !/.gitignore
 !/.github/
-!.github/**
+!/.github/**
 !/.vscode/
-!.vscode/**
-!.claude/
-!.claude/**
+!/.vscode/**
+!/.claude/
+!/.claude/**
+!/.githooks/
+!/.githooks/**
+!/.markdownlint-cli2.jsonc
+!/.release/
+!/.release/**
 !/.Codex/
-!.Codex/**
+!/.Codex/**
 
-uv.lock
 dist/
 h2hdb.log
+node_modules/
+package-lock.json
+uv.lock
 .claude/scheduled_tasks.lock
 
 # macOS

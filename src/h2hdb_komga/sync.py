@@ -553,7 +553,7 @@ def sync_komga_library(
                 clock=clock,
                 sleep_for=sleep_for,
             )
-        except CatalogRevisionNotFoundError:
+        except CatalogRevisionNotFoundError as error:
             # Core accepts only the current head.  A head advance between any
             # two bounded artifact-name or pagination reads invalidates the
             # whole metadata map before a PATCH can be constructed.  Discard
@@ -571,7 +571,7 @@ def sync_komga_library(
                 raise TimeoutError(
                     f"Timed out after {timeout_seconds:g}s waiting for Komga "
                     f"library {active_client.library_id} to settle"
-                )
+                ) from error
             sleep_for(min(poll_interval_seconds, remaining_seconds))
             continue
         series_ids = active_client.get_series_ids(

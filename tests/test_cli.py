@@ -92,7 +92,7 @@ def test_cli_runs_bootstrap_inside_hard_deadline_worker(monkeypatch: Any) -> Non
 def test_process_supervisor_kills_a_blocked_worker_at_the_deadline() -> None:
     started_at = monotonic()
 
-    with pytest.raises(TimeoutError, match="0.05s hard timeout"):
+    with pytest.raises(TimeoutError, match=r"0.05s hard timeout"):
         cli._run_process_with_hard_timeout(
             sleep,
             (10,),

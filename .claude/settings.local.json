@@ -18,7 +18,6 @@
       "Bash(tail:*)",
       "Bash(tree:*)",
       "Bash(uv add *)",
-      "Bash(uv run black *)",
       "Bash(uv run mypy *)",
       "Bash(uv run pytest *)",
       "Bash(uv run ruff *)",
@@ -46,22 +45,6 @@
     "additionalDirectories": [
       "/tmp",
       "/private/tmp"
-    ]
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "scripts/hooks/finalize-python.sh"
-          },
-          {
-            "type": "command",
-            "command": "scripts/hooks/finalize-markdown.sh"
-          }
-        ]
-      }
     ]
   }
 }

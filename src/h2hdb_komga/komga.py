@@ -1,4 +1,4 @@
-__all__ = ["KomgaClient", "PATCH_TIMEOUT_SECONDS", "REQUEST_TIMEOUT_SECONDS"]
+__all__ = ["PATCH_TIMEOUT_SECONDS", "REQUEST_TIMEOUT_SECONDS", "KomgaClient"]
 
 import logging
 from time import monotonic, sleep
