@@ -101,18 +101,17 @@ for a dedicated read-only database account and password.
 
 ## Local Development
 
-This repository has its own uv virtual environment and intentionally ignores
-`uv.lock`; it is not part of an uv workspace. Rebuild it with the project
-script:
+Rebuild the repository-local environment and run its canonical gates with:
 
 ```bash
 ./scripts/rebuild-env.sh
-uv run --no-sync pytest
+./scripts/check-fast.sh
+./scripts/check-full.sh
 ```
 
-The script installs this project in editable mode and resolves the published
-compatible H2HDB core. It deliberately does not install an adjacent
-`h2hdb.clone`, which may track an unpublished core revision.
+The rebuild script installs this project in editable mode and resolves the
+published compatible H2HDB core. It uses `uv` only for `.venv` and pip-style
+installation, never reads `uv.lock`, and never assumes an adjacent checkout.
 
 ---
 
