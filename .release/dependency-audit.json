@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-08-28T18:41:21+00:00",
-  "manifest_sha256": "b37da4d2debf3e2328ed0e6ad1051f8fa9e590ff8012229c6712742cf3b8782b",
+  "checked_at": "2026-08-29T06:30:17+00:00",
+  "manifest_sha256": "cc26a280f45fe8c3c39c762ce2986e131c8ac459539e0f8cf91738d0a61b9f9b",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.6.0",
+  "project_version": "0.7.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,9 +21,9 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.24.0,<0.25",
+      "declared": "h2hdb>=0.25.0,<0.26",
       "group": "runtime",
-      "latest": "0.23.1",
+      "latest": "0.24.0",
       "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "2026-08-29 full direct build, runtime, development, and Node registry review completed. h2hdb 0.24.0 is the local breaking exact-tree multi-repository candidate; PyPI latest is 0.23.1, so latest_satisfies=false is intentional and does not claim that 0.24.0 is published. All other latest releases satisfy their declared ranges and publish Python 3.14-compatible files. Official notes show build 1.6.0 adds CLI features and robustness fixes, while its removed BuildBackendException exc_info and deprecated build.util helper are unused because this repository only invokes python -m build; Ruff 0.16.5 adds preview-only selectors and ASYNC210, DTZ007, and SIM401 fixes outside the enabled non-preview rule set. Requests and all remaining candidates are unchanged from the prior reviewed audit; check-fast validates the resolved local tooling separately.",
+    "note": "2026-08-29 full direct build, runtime, development, and Node registry review completed. h2hdb 0.25.0 is the local breaking exact-tree multi-repository candidate; PyPI latest is 0.24.0, so latest_satisfies=false is intentional and does not claim that 0.25.0 is published. All other latest releases satisfy their declared ranges and publish Python 3.14-compatible files. Official notes show build 1.6.0 adds CLI features and robustness fixes, while its removed BuildBackendException exc_info and deprecated build.util helper are unused because this repository only invokes python -m build; Ruff 0.16.5 adds preview-only selectors and ASYNC210, DTZ007, and SIM401 fixes outside the enabled non-preview rule set. Requests and all remaining candidates are unchanged from the prior reviewed audit; exact-tree cross-repository gates validate the local h2hdb candidate separately.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
