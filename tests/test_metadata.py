@@ -117,6 +117,7 @@ def test_legacy_and_malformed_names_are_not_catalog_lookup_keys() -> None:
             "h2h-042.cbz",
             "H2H-42.CBZ",
             " h2h-42.cbz ",
+            "h2h-4٢.cbz",
             f"h2h-{1 << 63}.cbz",
         ],
     )

@@ -56,6 +56,7 @@ initializes or migrates schema; schema ownership stays with H2HDB core.
     "api_username": "${KOMGA_API_USERNAME}",
     "api_password": "${KOMGA_API_PASSWORD}",
     "library_id": "library-id",
+    "coordination_root": "/srv/h2hdb/coordination",
     "trigger_scan": true
 }
 ```
@@ -75,6 +76,26 @@ be non-empty strings. Literal `api_username` and `api_password` values remain
 supported, but placeholders keep deployment secrets out of the JSON file.
 Credential fields are also omitted from `KomgaConfig`'s representation so
 ordinary diagnostic output does not reveal them.
+
+`coordination_root` is required and must be an absolute path to a separate
+read-only mount of the ingest library's `.h2hdb-state/coordination` directory.
+It contains the permanent regular file `publication.lock` and, only during an
+unfinished cutover, `ACTIVATING`. The command opens every directory component
+without following symlinks, opens the lock nonblocking, acquires a nonblocking
+shared flock, and checks the marker before contacting Komga. A busy or unsafe
+lock, a symlinked path, or any `ACTIVATING` entry fails closed. The shared lock
+is held through scan, analyze, settling, metadata reconciliation, and the final
+stability check. Normal exit, failure, container stop, and the CLI's hard worker
+termination all release the kernel lock when the descriptor closes.
+
+Edit the target Komga library and disable both autonomous scan settings:
+
+- **Scan on startup:** disabled
+- **Scan interval:** disabled
+
+Only this coordinated command may trigger a library scan/analyze. Keep
+`trigger_scan` set to `true` for the scheduled synchronization job, and do not
+trigger scans from the Komga UI, another API client, or another scheduler.
 
 `trigger_scan` defaults to `true`. Set it to `false` to skip requesting a
 Komga scan/analyze and only reconcile metadata already visible in the library.
@@ -123,10 +144,10 @@ See [Rainie's article](https://home.gamer.com.tw/artwork.php?sn=5659465).
 - Why is a CBZ file not updated?
 
   The canonical `h2h-<gid>.cbz` file must be present in Komga and in a
-  successfully published H2HDB catalog revision. Enable `trigger_scan`, scan
-  the library in Komga, or run the command again after ingest has published
-  the artifact. Legacy content-addressed, pure-GID, and friendly projection
-  names are not supported.
+  successfully published H2HDB catalog revision. After ingest publishes the
+  artifact, run this coordinated command with `trigger_scan` enabled. Do not
+  trigger an uncoordinated scan from Komga. Legacy content-addressed, pure-GID,
+  and friendly projection names are not supported.
 
 ---
 

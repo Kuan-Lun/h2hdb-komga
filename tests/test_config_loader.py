@@ -14,6 +14,7 @@ def _write_config(tmp_path: Path, **values: object) -> Path:
             {
                 "base_url": "https://komga.invalid",
                 "library_id": "library-1",
+                "coordination_root": str(tmp_path / "coordination"),
                 "trigger_scan": False,
                 **values,
             }
@@ -45,6 +46,7 @@ def test_exact_environment_placeholders_resolve_credentials(
 
     assert config.api_username == "environment-user"
     assert config.api_password == "environment-password"
+    assert config.coordination_root == tmp_path / "coordination"
 
 
 def test_literal_json_credentials_remain_supported(tmp_path: Path) -> None:
@@ -120,12 +122,47 @@ def test_empty_environment_secret_is_rejected_instead_of_falling_back(
         KomgaConfig.from_file(str(path))
 
 
+def test_coordination_root_is_required(tmp_path: Path) -> None:
+    path = tmp_path / "komga-config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "base_url": "https://komga.invalid",
+                "api_username": "user",
+                "api_password": "password",
+                "library_id": "library-1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="coordination root must be a non-empty"):
+        KomgaConfig.from_file(str(path))
+
+
+@pytest.mark.parametrize("coordination_root", ["relative/path", "/"])
+def test_coordination_root_must_be_an_absolute_nonroot_path(
+    tmp_path: Path,
+    coordination_root: str,
+) -> None:
+    path = _write_config(
+        tmp_path,
+        api_username="user",
+        api_password="password",
+        coordination_root=coordination_root,
+    )
+
+    with pytest.raises(ValueError, match="coordination root must"):
+        KomgaConfig.from_file(str(path))
+
+
 def test_credentials_are_excluded_from_config_repr() -> None:
     config = KomgaConfig(
         base_url="https://komga.invalid",
         api_username="private-user",
         api_password="private-password",
         library_id="library-1",
+        coordination_root=Path("/srv/h2hdb/coordination"),
         trigger_scan=True,
     )
 

@@ -1,6 +1,9 @@
+import fcntl
+import os
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,6 +11,7 @@ import requests
 from h2hdb import CatalogPublication, CatalogRevision
 
 from h2hdb_komga.config_loader import KomgaConfig
+from h2hdb_komga.coordination import LibraryUnavailable
 from h2hdb_komga.metadata import KomgaMetadata, publication_to_komga_metadata
 from h2hdb_komga.sync import sync_komga_library
 
@@ -94,24 +98,35 @@ def _publication() -> CatalogPublication:
     )
 
 
-def _config(client: FakeKomgaClient, *, trigger_scan: bool = True) -> KomgaConfig:
+def _config(
+    tmp_path: Path,
+    client: FakeKomgaClient,
+    *,
+    trigger_scan: bool = True,
+) -> KomgaConfig:
+    coordination_root = tmp_path / "coordination"
+    coordination_root.mkdir(exist_ok=True)
+    (coordination_root / "publication.lock").touch(exist_ok=True)
     return KomgaConfig(
         base_url="https://komga.invalid",
         api_username="user",
         api_password="password",
         library_id=client.library_id,
+        coordination_root=coordination_root,
         trigger_scan=trigger_scan,
     )
 
 
-def test_sync_uses_injected_reader_and_client_and_skips_missing_books() -> None:
+def test_sync_uses_injected_reader_and_client_and_skips_missing_books(
+    tmp_path: Path,
+) -> None:
     publication = _publication()
     reader = FakeCatalogReader({"h2h-7.cbz": publication})
     client = FakeKomgaClient()
     clock = FakeClock()
 
     sync_komga_library(
-        _config(client),
+        _config(tmp_path, client),
         reader,
         client=client,
         clock=clock,
@@ -136,7 +151,9 @@ def test_sync_uses_injected_reader_and_client_and_skips_missing_books() -> None:
     assert clock.sleep_calls == [1, 1]
 
 
-def test_unchanged_ids_are_reconciled_when_analyze_rewrites_metadata() -> None:
+def test_unchanged_ids_are_reconciled_when_analyze_rewrites_metadata(
+    tmp_path: Path,
+) -> None:
     publication = _publication()
     expected = publication_to_komga_metadata(publication)
     reader = FakeCatalogReader({"h2h-7.cbz": publication})
@@ -153,7 +170,7 @@ def test_unchanged_ids_are_reconciled_when_analyze_rewrites_metadata() -> None:
     client.books["book-found"]["metadata"] = deepcopy(expected)
 
     sync_komga_library(
-        _config(client, trigger_scan=False),
+        _config(tmp_path, client, trigger_scan=False),
         reader,
         client=client,
         clock=clock,
@@ -170,7 +187,9 @@ def test_unchanged_ids_are_reconciled_when_analyze_rewrites_metadata() -> None:
     assert clock.sleep_calls == [1, 1, 1]
 
 
-def test_delayed_scan_results_reset_the_stable_observation_window() -> None:
+def test_delayed_scan_results_reset_the_stable_observation_window(
+    tmp_path: Path,
+) -> None:
     publication = _publication()
     reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
@@ -190,7 +209,7 @@ def test_delayed_scan_results_reset_the_stable_observation_window() -> None:
     client = DelayedScanClient()
 
     sync_komga_library(
-        _config(client),
+        _config(tmp_path, client),
         reader,
         client=client,
         clock=clock,
@@ -208,7 +227,9 @@ def test_delayed_scan_results_reset_the_stable_observation_window() -> None:
     assert clock.sleep_calls == [1, 1, 1, 1, 1]
 
 
-def test_transient_book_fetch_failure_is_retried_on_later_poll() -> None:
+def test_transient_book_fetch_failure_is_retried_on_later_poll(
+    tmp_path: Path,
+) -> None:
     publication = _publication()
     reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
@@ -229,7 +250,7 @@ def test_transient_book_fetch_failure_is_retried_on_later_poll() -> None:
     client = TransientFetchClient()
 
     sync_komga_library(
-        _config(client, trigger_scan=False),
+        _config(tmp_path, client, trigger_scan=False),
         reader,
         client=client,
         clock=clock,
@@ -246,7 +267,7 @@ def test_transient_book_fetch_failure_is_retried_on_later_poll() -> None:
     assert clock.sleep_calls == [1, 1, 1]
 
 
-def test_settling_times_out_when_book_fetch_never_succeeds() -> None:
+def test_settling_times_out_when_book_fetch_never_succeeds(tmp_path: Path) -> None:
     publication = _publication()
     reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
@@ -267,7 +288,7 @@ def test_settling_times_out_when_book_fetch_never_succeeds() -> None:
 
     with pytest.raises(TimeoutError, match="waiting for Komga library"):
         sync_komga_library(
-            _config(client, trigger_scan=False),
+            _config(tmp_path, client, trigger_scan=False),
             reader,
             client=client,
             clock=clock,
@@ -282,7 +303,9 @@ def test_settling_times_out_when_book_fetch_never_succeeds() -> None:
     assert clock.sleep_calls == [1, 1, 1]
 
 
-def test_catalog_revision_change_resets_settling_and_pins_each_pass() -> None:
+def test_catalog_revision_change_resets_settling_and_pins_each_pass(
+    tmp_path: Path,
+) -> None:
     publication = _publication()
 
     class ChangingCatalogReader(FakeCatalogReader):
@@ -297,7 +320,7 @@ def test_catalog_revision_change_resets_settling_and_pins_each_pass() -> None:
     clock = FakeClock()
 
     sync_komga_library(
-        _config(client, trigger_scan=False),
+        _config(tmp_path, client, trigger_scan=False),
         reader,
         client=client,
         clock=clock,
@@ -312,7 +335,9 @@ def test_catalog_revision_change_resets_settling_and_pins_each_pass() -> None:
     assert clock.sleep_calls == [1, 1]
 
 
-def test_head_advance_during_artifact_name_lookup_restarts_whole_pass() -> None:
+def test_head_advance_during_artifact_name_lookup_restarts_whole_pass(
+    tmp_path: Path,
+) -> None:
     publication = _publication()
     book_names = tuple(f"h2h-{index}.cbz" for index in range(1, 130))
 
@@ -345,7 +370,7 @@ def test_head_advance_during_artifact_name_lookup_restarts_whole_pass() -> None:
     clock = FakeClock()
 
     sync_komga_library(
-        _config(client, trigger_scan=False),
+        _config(tmp_path, client, trigger_scan=False),
         reader,
         client=client,
         clock=clock,
@@ -363,7 +388,9 @@ def test_head_advance_during_artifact_name_lookup_restarts_whole_pass() -> None:
     assert set(client.patch_calls[0]) == set(client.books)
 
 
-def test_hard_deadline_is_checked_inside_a_reconciliation_pass() -> None:
+def test_hard_deadline_is_checked_inside_a_reconciliation_pass(
+    tmp_path: Path,
+) -> None:
     publication = _publication()
     reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
@@ -378,7 +405,7 @@ def test_hard_deadline_is_checked_inside_a_reconciliation_pass() -> None:
 
     with pytest.raises(TimeoutError, match="waiting for Komga library"):
         sync_komga_library(
-            _config(client, trigger_scan=False),
+            _config(tmp_path, client, trigger_scan=False),
             reader,
             client=client,
             clock=clock,
@@ -387,3 +414,111 @@ def test_hard_deadline_is_checked_inside_a_reconciliation_pass() -> None:
             stable_observation_seconds=1,
             timeout_seconds=3,
         )
+
+
+def test_sync_holds_shared_publication_lock_for_complete_komga_lifecycle(
+    tmp_path: Path,
+) -> None:
+    publication = _publication()
+    reader = FakeCatalogReader({"h2h-7.cbz": publication})
+    clock = FakeClock()
+    lock_path = tmp_path / "coordination" / "publication.lock"
+
+    class LockCheckingClient(FakeKomgaClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.locked_operations: set[str] = set()
+
+        def _observe_shared_lock(self, operation: str) -> None:
+            descriptor = os.open(lock_path, os.O_RDWR | os.O_CLOEXEC)
+            try:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(descriptor)
+            self.locked_operations.add(operation)
+
+        def scan_library(self, *, timeout_seconds: float | None = None) -> None:
+            self._observe_shared_lock("scan")
+            super().scan_library(timeout_seconds=timeout_seconds)
+
+        def analyze_library(self, *, timeout_seconds: float | None = None) -> None:
+            self._observe_shared_lock("analyze")
+            super().analyze_library(timeout_seconds=timeout_seconds)
+
+        def get_book_ids(self, *, timeout_seconds: float | None = None) -> set[str]:
+            self._observe_shared_lock("settling")
+            return super().get_book_ids(timeout_seconds=timeout_seconds)
+
+        def patch_books_metadata(
+            self,
+            metadata_by_book_id: dict[str, KomgaMetadata],
+            *,
+            timeout_seconds: float | None = None,
+        ) -> None:
+            self._observe_shared_lock("metadata")
+            super().patch_books_metadata(
+                metadata_by_book_id,
+                timeout_seconds=timeout_seconds,
+            )
+
+        def get_series_ids(self, *, timeout_seconds: float | None = None) -> set[str]:
+            self._observe_shared_lock("final-observation")
+            return super().get_series_ids(timeout_seconds=timeout_seconds)
+
+    client = LockCheckingClient()
+    config = _config(tmp_path, client)
+
+    sync_komga_library(
+        config,
+        reader,
+        client=client,
+        clock=clock,
+        sleep_for=clock.sleep,
+        poll_interval_seconds=1,
+        stable_observation_seconds=1,
+        timeout_seconds=10,
+    )
+
+    assert client.locked_operations == {
+        "scan",
+        "analyze",
+        "settling",
+        "metadata",
+        "final-observation",
+    }
+
+
+def test_exclusive_publication_lock_prevents_sync_before_komga_calls(
+    tmp_path: Path,
+) -> None:
+    reader = FakeCatalogReader({"h2h-7.cbz": _publication()})
+    client = FakeKomgaClient()
+    config = _config(tmp_path, client)
+    descriptor = os.open(
+        config.coordination_root / "publication.lock",
+        os.O_RDWR | os.O_CLOEXEC,
+    )
+    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with pytest.raises(LibraryUnavailable, match="temporarily unavailable"):
+            sync_komga_library(config, reader, client=client)
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+    assert client.scan_calls == 0
+    assert client.book_id_calls == 0
+
+
+def test_activation_marker_prevents_sync_before_komga_calls(tmp_path: Path) -> None:
+    reader = FakeCatalogReader({"h2h-7.cbz": _publication()})
+    client = FakeKomgaClient()
+    config = _config(tmp_path, client)
+    (config.coordination_root / "ACTIVATING").touch()
+
+    with pytest.raises(LibraryUnavailable, match="activating"):
+        sync_komga_library(config, reader, client=client)
+
+    assert client.scan_calls == 0
+    assert client.book_id_calls == 0

@@ -158,6 +158,11 @@ schema。
 ### Architecture and contracts
 
 - `config_loader.py` 擁有 frozen `KomgaConfig` 與 JSON loading。
+  `coordination_root` 是 required absolute path，指向 ingest
+  `.h2hdb-state/coordination` 的獨立 read-only mount。
+  `coordination.py` 擁有 reader fencing，必須以 descriptor-relative、逐層
+  `O_NOFOLLOW` 且 `O_NONBLOCK` 的方式只讀開啟 regular
+  `publication.lock`，不得建立或修改 coordination state。
   `metadata.py` 是 neutral `CatalogPublication` 到 Komga metadata 的唯一
   translation layer。`komga.py` 是具有 hard timeout 的薄 REST client；
   orchestration/retry policy 不得放入 client。
@@ -177,6 +182,15 @@ schema。
   I/O work 的 `h2hdb.threading_tools.ThreadsList`。
 - bulk PATCH 204 不代表每本書成功；每次 attempt 後都重新 fetch 驗證，只重試
   failed books，超過 `PATCH_RETRY_ATTEMPTS` 必須 fail。
+- 每次完整 sync 必須 nonblocking 取得 `publication.lock` shared flock，並在
+  lock 下確認不存在任何 `ACTIVATING` entry。shared lock 從觸發 Komga
+  scan/analyze 前持有到 settling、metadata reconciliation 與 final stability
+  check 完成；lock busy、missing/nonregular、symlink/FIFO 或 marker present
+  一律 fail closed。worker 被正常停止或 hard kill 時依賴 descriptor close
+  釋放 kernel lock，不得寫入 reader marker。
+- Komga library 的 **Scan on startup** 與 **Scan interval** 都必須 disabled；
+  只有本 coordinated CLI job 可以觸發 scan/analyze，不得由 Komga UI、其他
+  API client 或 scheduler 執行未持鎖的 scan。
 - CLI 將 `CoreConfig.database.access_mode` 強制改為 read-only，再呼叫 top-level
   `open_database()` 執行 epoch-3 `READY` audit。不得 import core internals
   或呼叫 `migrate()`。outer process supervisor 必須維持 wall-clock hard
@@ -191,6 +205,9 @@ schema。
 - neutral mapping、missing artifact、revision advance、settling loop、PATCH
   verification、bounded concurrency、hard timeout 與 read-only bootstrap
   變更都必須有 regression tests。
+- coordination tests 必須涵蓋 full-sync shared lock lifetime、exclusive
+  contention、marker、symlink path、FIFO/nonregular lock 與 descriptor cleanup；
+  canonical basename tests 必須拒絕 Unicode digit。
 - `scripts/check-full.sh` 執行完整離線 pytest、sdist/wheel build，以及從
   installed wheel 執行 package/CLI smoke。
 - comments 預設不寫；只有程式碼無法表達的 hidden constraint 或 workaround

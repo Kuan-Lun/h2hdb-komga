@@ -16,6 +16,7 @@ from h2hdb import (
 )
 
 from .config_loader import KomgaConfig
+from .coordination import LibraryReadCoordinator
 from .komga import PATCH_TIMEOUT_SECONDS, KomgaClient
 from .metadata import KomgaMetadata, publication_to_komga_metadata
 
@@ -37,7 +38,7 @@ SETTLING_POLL_INTERVAL_SECONDS = 5.0
 SETTLING_STABLE_OBSERVATION_SECONDS = 30.0
 SETTLING_TIMEOUT_SECONDS = 3600.0
 CATALOG_LOOKUP_BATCH_SIZE = 128
-CANONICAL_ARTIFACT_NAME_PATTERN = re.compile(r"^h2h-([1-9]\d*)$")
+CANONICAL_ARTIFACT_NAME_PATTERN = re.compile(r"^h2h-([1-9][0-9]*)$")
 MAX_GID = (1 << 63) - 1
 
 
@@ -425,6 +426,30 @@ def sync_komga_library(
     poll_interval_seconds: float = SETTLING_POLL_INTERVAL_SECONDS,
     stable_observation_seconds: float = SETTLING_STABLE_OBSERVATION_SECONDS,
     timeout_seconds: float = SETTLING_TIMEOUT_SECONDS,
+) -> None:
+    with LibraryReadCoordinator(komgaconfig.coordination_root).read():
+        _sync_komga_library(
+            komgaconfig,
+            catalog_reader,
+            client=client,
+            clock=clock,
+            sleep_for=sleep_for,
+            poll_interval_seconds=poll_interval_seconds,
+            stable_observation_seconds=stable_observation_seconds,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def _sync_komga_library(
+    komgaconfig: KomgaConfig,
+    catalog_reader: CatalogReader,
+    *,
+    client: KomgaGateway | None,
+    clock: Callable[[], float],
+    sleep_for: Callable[[float], None],
+    poll_interval_seconds: float,
+    stable_observation_seconds: float,
+    timeout_seconds: float,
 ) -> None:
     _validate_settling_timing(
         poll_interval_seconds=poll_interval_seconds,

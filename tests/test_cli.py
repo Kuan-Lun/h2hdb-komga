@@ -1,4 +1,5 @@
 import multiprocessing
+from pathlib import Path
 from time import monotonic, sleep
 from typing import Any
 
@@ -12,6 +13,7 @@ from h2hdb_komga.config_loader import KomgaConfig
 
 def test_worker_bootstrap_opens_compatible_database_read_only(
     monkeypatch: Any,
+    tmp_path: Path,
 ) -> None:
     events: list[str] = []
     original_config = CoreConfig(
@@ -24,6 +26,7 @@ def test_worker_bootstrap_opens_compatible_database_read_only(
         api_username="user",
         api_password="password",
         library_id="library-1",
+        coordination_root=tmp_path / "coordination",
         trigger_scan=False,
     )
 
