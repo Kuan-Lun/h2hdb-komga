@@ -1,12 +1,11 @@
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 import requests
-from h2hdb import CatalogPage, CatalogPublication, CatalogRevision
+from h2hdb import CatalogPublication, CatalogRevision
 
 from h2hdb_komga.config_loader import KomgaConfig
 from h2hdb_komga.metadata import KomgaMetadata, publication_to_komga_metadata
@@ -33,8 +32,8 @@ class FakeKomgaClient:
 
     def __init__(self) -> None:
         self.books: dict[str, dict[str, Any]] = {
-            "book-found": {"name": "found.cbz", "metadata": {}},
-            "book-missing": {"name": "missing.cbz", "metadata": {}},
+            "book-found": {"name": "h2h-7.cbz", "metadata": {}},
+            "book-missing": {"name": "h2h-8.cbz", "metadata": {}},
         }
         self.patch_calls: list[dict[str, KomgaMetadata]] = []
         self.scan_calls = 0
@@ -95,18 +94,6 @@ def _publication() -> CatalogPublication:
     )
 
 
-def _publication_for_gid(gid: int) -> CatalogPublication:
-    return replace(
-        _publication(),
-        publication_id=f"urn:h2h:gallery:{gid}",
-        gid=gid,
-        source_gallery_name=f"Gallery {gid} [{gid}]",
-        source_title=f"Gallery {gid}",
-        title=f"Gallery {gid}",
-        sort_title=f"gallery {gid}",
-    )
-
-
 def _config(client: FakeKomgaClient, *, trigger_scan: bool = True) -> KomgaConfig:
     return KomgaConfig(
         base_url="https://komga.invalid",
@@ -119,7 +106,7 @@ def _config(client: FakeKomgaClient, *, trigger_scan: bool = True) -> KomgaConfi
 
 def test_sync_uses_injected_reader_and_client_and_skips_missing_books() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"found.cbz": publication})
+    reader = FakeCatalogReader({"h2h-7.cbz": publication})
     client = FakeKomgaClient()
     clock = FakeClock()
 
@@ -140,7 +127,7 @@ def test_sync_uses_injected_reader_and_client_and_skips_missing_books() -> None:
     assert client.series_id_calls == 3
     assert len(reader.artifact_name_calls) == 3
     assert all(
-        set(call) == {"found.cbz", "missing.cbz"} for call in reader.artifact_name_calls
+        set(call) == {"h2h-7.cbz", "h2h-8.cbz"} for call in reader.artifact_name_calls
     )
     assert client.patch_calls == [
         {"book-found": publication_to_komga_metadata(publication)}
@@ -152,7 +139,7 @@ def test_sync_uses_injected_reader_and_client_and_skips_missing_books() -> None:
 def test_unchanged_ids_are_reconciled_when_analyze_rewrites_metadata() -> None:
     publication = _publication()
     expected = publication_to_komga_metadata(publication)
-    reader = FakeCatalogReader({"found.cbz": publication})
+    reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
 
     class AnalyzeRewriteClient(FakeKomgaClient):
@@ -185,7 +172,7 @@ def test_unchanged_ids_are_reconciled_when_analyze_rewrites_metadata() -> None:
 
 def test_delayed_scan_results_reset_the_stable_observation_window() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"found.cbz": publication})
+    reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
 
     class DelayedScanClient(FakeKomgaClient):
@@ -223,7 +210,7 @@ def test_delayed_scan_results_reset_the_stable_observation_window() -> None:
 
 def test_transient_book_fetch_failure_is_retried_on_later_poll() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"found.cbz": publication})
+    reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
 
     class TransientFetchClient(FakeKomgaClient):
@@ -261,7 +248,7 @@ def test_transient_book_fetch_failure_is_retried_on_later_poll() -> None:
 
 def test_settling_times_out_when_book_fetch_never_succeeds() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"found.cbz": publication})
+    reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
 
     class FailingFetchClient(FakeKomgaClient):
@@ -304,7 +291,7 @@ def test_catalog_revision_change_resets_settling_and_pins_each_pass() -> None:
                 self.current_revision = 2
             return super().get_catalog_revision(revision)
 
-    reader = ChangingCatalogReader({"found.cbz": publication})
+    reader = ChangingCatalogReader({"h2h-7.cbz": publication})
     client = FakeKomgaClient()
     client.books["book-found"]["metadata"] = publication_to_komga_metadata(publication)
     clock = FakeClock()
@@ -327,7 +314,7 @@ def test_catalog_revision_change_resets_settling_and_pins_each_pass() -> None:
 
 def test_head_advance_during_artifact_name_lookup_restarts_whole_pass() -> None:
     publication = _publication()
-    book_names = tuple(f"gallery-{index:03}" for index in range(65))
+    book_names = tuple(f"h2h-{index}.cbz" for index in range(1, 130))
 
     class ArtifactLookupRaceReader(FakeCatalogReader):
         def __init__(self) -> None:
@@ -376,68 +363,9 @@ def test_head_advance_during_artifact_name_lookup_restarts_whole_pass() -> None:
     assert set(client.patch_calls[0]) == set(client.books)
 
 
-def test_head_advance_during_catalog_pagination_restarts_whole_pass() -> None:
-    publications = tuple(_publication_for_gid(gid) for gid in range(1, 130))
-
-    class PaginationRaceReader(FakeCatalogReader):
-        def __init__(self) -> None:
-            super().__init__(
-                {
-                    f"catalog-{publication.gid}.cbz": publication
-                    for publication in publications
-                }
-            )
-            self.attempted_revisions: list[int] = []
-
-        def list_publications(
-            self,
-            *,
-            query: str | None = None,
-            offset: int = 0,
-            limit: int = 50,
-            revision: CatalogRevision | int | None = None,
-            require_artifact: bool = False,
-        ) -> CatalogPage:
-            assert isinstance(revision, CatalogRevision)
-            self.attempted_revisions.append(revision.revision)
-            if len(self.attempted_revisions) == 2:
-                self.current_revision = 2
-            return super().list_publications(
-                query=query,
-                offset=offset,
-                limit=limit,
-                revision=revision,
-                require_artifact=require_artifact,
-            )
-
-    reader = PaginationRaceReader()
-    client = FakeKomgaClient()
-    client.books = {"book-target": {"name": "129", "metadata": {}}}
-    clock = FakeClock()
-
-    sync_komga_library(
-        _config(client, trigger_scan=False),
-        reader,
-        client=client,
-        clock=clock,
-        sleep_for=clock.sleep,
-        poll_interval_seconds=1,
-        stable_observation_seconds=1,
-        timeout_seconds=10,
-    )
-
-    assert reader.attempted_revisions[:2] == [1, 1]
-    assert set(reader.attempted_revisions[2:]) == {2}
-    assert reader.list_calls[0] == (0, 128, 1)
-    assert all(revision == 2 for _offset, _limit, revision in reader.list_calls[1:])
-    assert client.patch_calls == [
-        {"book-target": publication_to_komga_metadata(publications[-1])}
-    ]
-
-
 def test_hard_deadline_is_checked_inside_a_reconciliation_pass() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"found.cbz": publication})
+    reader = FakeCatalogReader({"h2h-7.cbz": publication})
     clock = FakeClock()
 
     class SlowPaginationClient(FakeKomgaClient):

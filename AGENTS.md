@@ -161,10 +161,11 @@ schema。
   `metadata.py` 是 neutral `CatalogPublication` 到 Komga metadata 的唯一
   translation layer。`komga.py` 是具有 hard timeout 的薄 REST client；
   orchestration/retry policy 不得放入 client。
-- `sync.py` 使用 injected `CatalogReader` 與 Komga gateway。artifact name
-  lookup 先嘗試 exact name 與 `.cbz` form，再以 public pagination 處理 GID、
-  content-addressed name 與 `[gid]` fallback；每個 lookup pass 都 pin 同一
-  revision。
+- `sync.py` 使用 injected `CatalogReader` 與 Komga gateway。它只接受
+  `h2h-<gid>.cbz` canonical basename（可容許 Komga 省略副檔名），將名稱
+  normalize 後以 public artifact-name lookup 查詢；不得重新加入 pure GID、
+  content-addressed、friendly `[gid]` 或 catalog pagination fallback。每個
+  lookup pass 都 pin 同一 revision。
 - core head 在 pinned lookup 中推進時，必須在建立任何 PATCH 前丟棄整個 pass，
   清除 local observation，並從 fresh current head 重試；不得混用兩個 head。
 - 每次 poll 都重新 reconcile 所有 current books，讓 transient GET failure
@@ -177,7 +178,7 @@ schema。
 - bulk PATCH 204 不代表每本書成功；每次 attempt 後都重新 fetch 驗證，只重試
   failed books，超過 `PATCH_RETRY_ATTEMPTS` 必須 fail。
 - CLI 將 `CoreConfig.database.access_mode` 強制改為 read-only，再呼叫 top-level
-  `open_database()` 執行 epoch-2 `READY` audit。不得 import core internals
+  `open_database()` 執行 epoch-3 `READY` audit。不得 import core internals
   或呼叫 `migrate()`。outer process supervisor 必須維持 wall-clock hard
   deadline，即使 socket、database gate 或 thread 不合作也能終止 worker。
 

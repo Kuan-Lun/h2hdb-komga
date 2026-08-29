@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import UTC, datetime
 
 from h2hdb import CatalogContributor, CatalogPublication, CatalogSubject
@@ -71,33 +70,24 @@ def test_blank_raw_title_does_not_overwrite_komga_title() -> None:
     assert "tags" not in metadata
 
 
-def test_artifact_lookup_accepts_komga_name_without_cbz_suffix() -> None:
+def test_canonical_artifact_lookup_accepts_komga_name_without_cbz_suffix() -> None:
     publication = _publication()
-    artifact_name = "[Artist] Friendly Gallery [42].cbz"
+    artifact_name = "h2h-42.cbz"
     reader = FakeCatalogReader({artifact_name: publication})
 
     result = _get_catalog_metadata_by_book_names(
         reader,
-        ["[Artist] Friendly Gallery [42]", "missing", "missing"],
+        ["h2h-42", "missing", "missing"],
     )
 
-    assert result == {
-        "[Artist] Friendly Gallery [42]": publication_to_komga_metadata(publication)
-    }
-    assert reader.artifact_name_calls == [
-        (
-            "[Artist] Friendly Gallery [42]",
-            artifact_name,
-            "missing",
-            "missing.cbz",
-        )
-    ]
+    assert result == {"h2h-42": publication_to_komga_metadata(publication)}
+    assert reader.artifact_name_calls == [(artifact_name,)]
     assert reader.list_calls == []
 
 
-def test_artifact_lookup_chunks_129_friendly_names_on_one_pinned_revision() -> None:
+def test_artifact_lookup_chunks_129_canonical_names_on_one_pinned_revision() -> None:
     publication = _publication()
-    artifact_names = [f"Friendly Gallery [{gid}].cbz" for gid in range(1, 130)]
+    artifact_names = [f"h2h-{gid}.cbz" for gid in range(1, 130)]
     reader = FakeCatalogReader(dict.fromkeys(artifact_names, publication))
     revision = reader.get_catalog_revision()
 
@@ -112,9 +102,9 @@ def test_artifact_lookup_chunks_129_friendly_names_on_one_pinned_revision() -> N
     assert all(observed is revision for observed in reader.artifact_revisions)
 
 
-def test_friendly_gallery_name_resolves_by_gid_through_public_reader() -> None:
+def test_legacy_and_malformed_names_are_not_catalog_lookup_keys() -> None:
     publication = _publication()
-    reader = FakeCatalogReader({"catalog-only": publication})
+    reader = FakeCatalogReader({"h2h-42.cbz": publication})
 
     result = _get_catalog_metadata_by_book_names(
         reader,
@@ -123,45 +113,15 @@ def test_friendly_gallery_name_resolves_by_gid_through_public_reader() -> None:
             "[Artist] Friendly Gallery [42].cbz",
             "42",
             f"42-{'ab' * 32}.cbz",
+            "h2h-0.cbz",
+            "h2h-042.cbz",
+            "H2H-42.CBZ",
+            " h2h-42.cbz ",
+            f"h2h-{1 << 63}.cbz",
         ],
     )
 
-    expected = publication_to_komga_metadata(publication)
-    assert result == {
-        "[Artist] Friendly Gallery [42]": expected,
-        "[Artist] Friendly Gallery [42].cbz": expected,
-        "42": expected,
-        f"42-{'ab' * 32}.cbz": expected,
-    }
+    assert result == {}
     assert reader.revision_calls == 1
-    assert reader.artifact_name_calls == [
-        (
-            "[Artist] Friendly Gallery [42]",
-            "[Artist] Friendly Gallery [42].cbz",
-            "42",
-            "42.cbz",
-            f"42-{'ab' * 32}.cbz",
-        )
-    ]
-    assert reader.list_calls == [(0, 128, 1)]
-
-
-def test_gid_fallback_pages_129_publications_in_bounded_batches() -> None:
-    template = _publication()
-    publications = {
-        f"unmatched-{gid}": replace(
-            template,
-            publication_id=f"urn:h2h:gallery:{gid}",
-            gid=gid,
-        )
-        for gid in range(1, 130)
-    }
-    reader = FakeCatalogReader(publications)
-
-    result = _get_catalog_metadata_by_book_names(reader, ["Friendly [129]"])
-
-    assert result == {
-        "Friendly [129]": publication_to_komga_metadata(publications["unmatched-129"])
-    }
-    assert reader.artifact_name_calls == [("Friendly [129]", "Friendly [129].cbz")]
-    assert reader.list_calls == [(0, 128, 1), (128, 128, 1)]
+    assert reader.artifact_name_calls == []
+    assert reader.list_calls == []

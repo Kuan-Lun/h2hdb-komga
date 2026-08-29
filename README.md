@@ -12,18 +12,18 @@ Komga, and this adapter does not patch Komga's `tags` field. When the original
 gallery title is blank, the title field is also omitted so Komga keeps its
 existing display title.
 
-Published friendly artifact names are matched directly through the public
-lookup, whether Komga includes the `.cbz` suffix or not; lookup candidates are
-queried in batches of at most 128 against one pinned revision. When direct
-lookup does not match, a physical `gid-sha256.cbz` storage name, a pure GID, or
-a friendly name ending in `[gid]` is resolved against that same pinned revision
-through public catalog pagination. A revision change resets the stability
-window, and completion performs a final revision check. This adapter never
-reads `CatalogArtifact.location` or any core repository internals. Books with
-no published match are left unchanged.
+Canonical `h2h-<gid>.cbz` artifact basenames are matched directly through the
+public lookup. Komga may include or omit the `.cbz` suffix; the adapter
+normalizes either form to the one canonical name and queries names in batches
+of at most 128 against one pinned revision. Legacy friendly, pure-GID, and
+content-addressed filenames are intentionally unsupported. A revision change
+resets the stability window, and completion performs a final revision check.
+This adapter does not know the library's hash-shard paths and never reads core
+repository internals. Books with no published canonical match are left
+unchanged.
 
 The H2HDB database is always opened in read-only mode. Startup performs the
-exact epoch-2 `READY` audit through H2HDB's public database opener but never
+exact epoch-3 `READY` audit through H2HDB's public database opener but never
 initializes or migrates schema; schema ownership stays with H2HDB core.
 
 ---
@@ -84,9 +84,9 @@ seconds; the default timeout is one hour and can be changed with
 `--timeout-seconds`. This observation window allows Komga's asynchronous
 scan/analyze jobs and transient book fetch failures to become visible before
 completion. Every catalog lookup in one pass is pinned to the same current
-H2HDB head. If publication advances during a batched lookup or pagination, the
-partial pass is discarded before metadata is patched and the next poll starts
-again from the new head. Each HTTP request, PATCH verification, retry, and retry
+H2HDB head. If publication advances during a batched lookup, the partial pass
+is discarded before metadata is patched and the next poll starts again from
+the new head. Each HTTP request, PATCH verification, retry, and retry
 delay uses the remaining cooperative budget. The CLI also runs the complete
 operation in a disposable worker process and kills it at the wall-clock
 deadline, so a slow-drip socket, blocked database gate, or executor shutdown
@@ -94,7 +94,7 @@ cannot extend the documented hard timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.25.0,<0.26`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.26.0,<0.27`. Any
 configured database access mode is overridden to `read-only` by this CLI.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
 for a dedicated read-only database account and password.
@@ -122,11 +122,11 @@ See [Rainie's article](https://home.gamer.com.tw/artwork.php?sn=5659465).
 
 - Why is a CBZ file not updated?
 
-  The CBZ must be present in Komga and in a successfully published H2HDB
-  catalog revision. Enable `trigger_scan`, scan the library in Komga, or run
-  the command again after ingest has published the artifact. Both the current
-  content-addressed filename and a current friendly projection name ending in
-  `[gid]` are supported.
+  The canonical `h2h-<gid>.cbz` file must be present in Komga and in a
+  successfully published H2HDB catalog revision. Enable `trigger_scan`, scan
+  the library in Komga, or run the command again after ingest has published
+  the artifact. Legacy content-addressed, pure-GID, and friendly projection
+  names are not supported.
 
 ---
 

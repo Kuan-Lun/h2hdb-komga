@@ -37,11 +37,8 @@ SETTLING_POLL_INTERVAL_SECONDS = 5.0
 SETTLING_STABLE_OBSERVATION_SECONDS = 30.0
 SETTLING_TIMEOUT_SECONDS = 3600.0
 CATALOG_LOOKUP_BATCH_SIZE = 128
-FRIENDLY_GALLERY_GID_PATTERN = re.compile(r"\[(\d+)]$")
-CONTENT_ADDRESSED_GID_PATTERN = re.compile(
-    r"^(\d+)-[0-9a-f]{64}(?:-[0-9a-f]{32})?$",
-    re.IGNORECASE,
-)
+CANONICAL_ARTIFACT_NAME_PATTERN = re.compile(r"^h2h-([1-9]\d*)$")
+MAX_GID = (1 << 63) - 1
 
 
 class KomgaGateway(Protocol):
@@ -101,54 +98,17 @@ def _progress_logger(
     return log
 
 
-def _artifact_name_candidates(book_name: str) -> tuple[str, ...]:
-    if book_name.casefold().endswith(".cbz"):
-        return (book_name,)
-    return (book_name, f"{book_name}.cbz")
-
-
-def _friendly_gallery_gid(book_name: str) -> int | None:
-    normalized = book_name.strip()
-    if normalized.casefold().endswith(".cbz"):
+def _canonical_artifact_name(book_name: str) -> str | None:
+    normalized = book_name
+    if normalized.endswith(".cbz"):
         normalized = normalized[:-4]
-    if normalized.isdecimal():
-        gid = int(normalized)
-        return gid if gid > 0 else None
-    content_addressed = CONTENT_ADDRESSED_GID_PATTERN.fullmatch(normalized)
-    if content_addressed is not None:
-        gid = int(content_addressed.group(1))
-        return gid if gid > 0 else None
-    match = FRIENDLY_GALLERY_GID_PATTERN.search(normalized)
+    match = CANONICAL_ARTIFACT_NAME_PATTERN.fullmatch(normalized)
     if match is None:
         return None
     gid = int(match.group(1))
-    return gid if gid > 0 else None
-
-
-def _publications_by_gids(
-    catalog_reader: CatalogReader,
-    gids: set[int],
-    revision: CatalogRevision,
-) -> dict[int, CatalogPublication]:
-    if not gids:
-        return {}
-    result: dict[int, CatalogPublication] = {}
-    offset = 0
-    while offset < revision.publication_count and len(result) < len(gids):
-        page = catalog_reader.list_publications(
-            offset=offset,
-            limit=CATALOG_LOOKUP_BATCH_SIZE,
-            revision=revision,
-        )
-        for publication in page.publications:
-            if publication.gid in gids:
-                result[publication.gid] = publication
-        if not page.publications:
-            break
-        offset += len(page.publications)
-        if offset >= page.total:
-            break
-    return result
+    if gid > MAX_GID:
+        return None
+    return f"h2h-{gid}.cbz"
 
 
 def _get_catalog_metadata_by_book_names(
@@ -162,14 +122,12 @@ def _get_catalog_metadata_by_book_names(
         return {}
     selected_revision = revision or catalog_reader.get_catalog_revision()
 
-    candidates_by_name = {name: _artifact_name_candidates(name) for name in names}
-    artifact_candidates = list(
-        dict.fromkeys(
-            candidate
-            for candidates in candidates_by_name.values()
-            for candidate in candidates
-        )
-    )
+    artifact_by_name = {
+        name: artifact_name
+        for name in names
+        if (artifact_name := _canonical_artifact_name(name)) is not None
+    }
+    artifact_candidates = list(dict.fromkeys(artifact_by_name.values()))
     publications_by_artifact: dict[str, CatalogPublication] = {}
     for offset in range(0, len(artifact_candidates), CATALOG_LOOKUP_BATCH_SIZE):
         batch = artifact_candidates[offset : offset + CATALOG_LOOKUP_BATCH_SIZE]
@@ -181,26 +139,8 @@ def _get_catalog_metadata_by_book_names(
         )
 
     publications_by_name: dict[str, CatalogPublication] = {}
-    for name, candidates in candidates_by_name.items():
-        for candidate in candidates:
-            publication = publications_by_artifact.get(candidate)
-            if publication is not None:
-                publications_by_name[name] = publication
-                break
-
-    friendly_gids_by_name = {
-        name: gid
-        for name in names
-        if name not in publications_by_name
-        if (gid := _friendly_gallery_gid(name)) is not None
-    }
-    publications_by_gid = _publications_by_gids(
-        catalog_reader,
-        set(friendly_gids_by_name.values()),
-        selected_revision,
-    )
-    for name, gid in friendly_gids_by_name.items():
-        if publication := publications_by_gid.get(gid):
+    for name, artifact_name in artifact_by_name.items():
+        if publication := publications_by_artifact.get(artifact_name):
             publications_by_name[name] = publication
 
     result = {
@@ -555,9 +495,9 @@ def sync_komga_library(
             )
         except CatalogRevisionNotFoundError as error:
             # Core accepts only the current head.  A head advance between any
-            # two bounded artifact-name or pagination reads invalidates the
-            # whole metadata map before a PATCH can be constructed.  Discard
-            # every observation from that pass and retry from a fresh head.
+            # two bounded artifact-name reads invalidates the whole metadata
+            # map before a PATCH can be constructed.  Discard every observation
+            # from that pass and retry from a fresh head.
             previous_book_ids = None
             previous_series_ids = None
             previous_catalog_revision = None

@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 
 from h2hdb import (
     CatalogArtifact,
+    CatalogArtifactCursor,
+    CatalogArtifactPage,
     CatalogPage,
     CatalogPublication,
     CatalogRevision,
@@ -36,6 +38,7 @@ class FakeCatalogReader:
             revision=self.current_revision,
             published_at=datetime(2026, 8, 1, tzinfo=UTC),
             publication_count=len(self._publications()),
+            artifact_count=len(self._publications()),
         )
 
     def _publications(self) -> tuple[CatalogPublication, ...]:
@@ -68,6 +71,16 @@ class FakeCatalogReader:
             limit=limit,
             total=len(publications),
         )
+
+    def list_artifact_publications(
+        self,
+        *,
+        after: CatalogArtifactCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogArtifactPage:
+        del after, limit, revision
+        raise AssertionError("artifact feed must not be used by Komga sync")
 
     def get_publication(
         self,
