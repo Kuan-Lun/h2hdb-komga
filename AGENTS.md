@@ -173,15 +173,22 @@ schema。
   lookup pass 都 pin 同一 revision。
 - core head 在 pinned lookup 中推進時，必須在建立任何 PATCH 前丟棄整個 pass，
   清除 local observation，並從 fresh current head 重試；不得混用兩個 head。
-- 每次 poll 都重新 reconcile 所有 current books，讓 transient GET failure
-  與被 Komga analysis 改回的 metadata 能重試。完成條件是 unchanged、
-  write-free observation window；整體 polling 必須有 hard timeout。
-- per-book fetch、verification 與 bulk PATCH chunk 使用 bounded
+- 每次 poll 都以 bounded Komga pages 重新 reconcile 所有 current `BookDto` 與
+  `SeriesDto`。完整 observation 必須以 file-backed unique index 證明 canonical
+  artifact、book、One-Shot series 與 pinned revision 的 exact set/count 相等，
+  且每個 bounded catalog lookup 都命中；partial、extra、duplicate、noncanonical
+  或 request failure 一律不得建立 PATCH。完成條件是 exact、unchanged、
+  write-free observation window；整體 polling 必須有 hard timeout。catalog 與
+  Komga 同時為 exact empty 是有效狀態。
+- metadata verification 與 bulk PATCH chunk 使用 bounded
   `ThreadPoolExecutor`（`KOMGA_MAX_WORKERS`）。verification 在同一 attempt
   的 chunks 全部完成後才執行，不能 nested pools。不得重新引入已移除且不適合
   I/O work 的 `h2hdb.threading_tools.ThreadsList`。
 - bulk PATCH 204 不代表每本書成功；每次 attempt 後都重新 fetch 驗證，只重試
   failed books，超過 `PATCH_RETRY_ATTEMPTS` 必須 fail。
+- scan/analyze POST 只有收到成功 response 才能進入 settling。`requests` timeout
+  無法證明 server 已接受 request，必須 fail closed，由下次完整 sync 重試，
+  不得無條件視為 queued。
 - 每次完整 sync 必須 nonblocking 取得 `publication.lock` shared flock，並在
   lock 下確認不存在任何 `ACTIVATING` entry。shared lock 從觸發 Komga
   scan/analyze 前持有到 settling、metadata reconciliation 與 final stability
@@ -202,9 +209,10 @@ schema。
   production database 或外部網路。
 - live Komga validation 必須逐次取得使用者授權，且永遠不得進入 commit 或
   merge gate。
-- neutral mapping、missing artifact、revision advance、settling loop、PATCH
-  verification、bounded concurrency、hard timeout 與 read-only bootstrap
-  變更都必須有 regression tests。
+- neutral mapping、exact empty/partial/extra/duplicate/noncanonical artifact set、
+  revision advance、settling loop、scan timeout、PATCH verification、bounded
+  pagination/concurrency、hard timeout 與 read-only bootstrap 變更都必須有
+  regression tests。
 - coordination tests 必須涵蓋 full-sync shared lock lifetime、exclusive
   contention、marker、symlink path、FIFO/nonregular lock 與 descriptor cleanup；
   canonical basename tests 必須拒絕 Unicode digit。

@@ -19,8 +19,6 @@ REQUEST_TIMEOUT_SECONDS = 30
 # A 200-book bulk PATCH needs a generous budget: concurrent bulk-PATCH load
 # can slow requests several-fold without Komga actually hanging.
 PATCH_TIMEOUT_SECONDS = 300
-# Pagination has no known total up front, so progress can only be time-based.
-PAGINATION_LOG_INTERVAL_SECONDS = 30
 # A single page fetch can fail from a transient Komga-side hiccup (e.g.
 # contention while a scan is still running) -- retrying just that page is far
 # cheaper than re-running the whole paginated listing.
@@ -87,34 +85,53 @@ class KomgaClient:
                 sleep(_bounded_timeout(PAGE_FETCH_RETRY_DELAY_SECONDS, remaining))
                 attempt += 1
 
-    def _paginate_ids(
-        self, path: str, *, timeout_seconds: float | None = None
-    ) -> set[str]:
-        ids = set[str]()
-        page_num = 0
-        last_logged_at = monotonic()
+    def _get_library_page(
+        self,
+        path: str,
+        page: int,
+        *,
+        timeout_seconds: float | None,
+    ) -> tuple[dict[str, Any], ...]:
+        if page < 0:
+            raise ValueError("Komga page must not be negative")
         deadline = None if timeout_seconds is None else monotonic() + timeout_seconds
-        while True:
-            params: dict[str, str | int] = {
+        content = self._get_page(
+            path,
+            {
                 "library_id": self.library_id,
-                "page": page_num,
+                "page": page,
                 "size": PAGE_SIZE,
-            }
-            content = self._get_page(path, params, deadline=deadline)
-            if not content:
-                return ids
-            ids.update(item["id"] for item in content)
-            page_num += 1
-            now = monotonic()
-            if now - last_logged_at >= PAGINATION_LOG_INTERVAL_SECONDS:
-                logger.info("Listed %d id(s) so far (page %d)", len(ids), page_num)
-                last_logged_at = now
+                "sort": "id,asc",
+            },
+            deadline=deadline,
+        )
+        if len(content) > PAGE_SIZE:
+            raise RuntimeError("Komga returned a page larger than the requested bound")
+        return tuple(content)
 
-    def get_book_ids(self, *, timeout_seconds: float | None = None) -> set[str]:
-        return self._paginate_ids("/api/v1/books", timeout_seconds=timeout_seconds)
+    def get_book_page(
+        self,
+        page: int,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        return self._get_library_page(
+            "/api/v1/books",
+            page,
+            timeout_seconds=timeout_seconds,
+        )
 
-    def get_series_ids(self, *, timeout_seconds: float | None = None) -> set[str]:
-        return self._paginate_ids("/api/v1/series", timeout_seconds=timeout_seconds)
+    def get_series_page(
+        self,
+        page: int,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        return self._get_library_page(
+            "/api/v1/series",
+            page,
+            timeout_seconds=timeout_seconds,
+        )
 
     def get_book(
         self, book_id: str, *, timeout_seconds: float | None = None

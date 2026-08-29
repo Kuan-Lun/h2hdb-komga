@@ -1,11 +1,17 @@
 __all__ = ["sync_komga_library"]
 
+import hashlib
+import json
 import logging
 import re
-from collections.abc import Callable
+import sqlite3
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import monotonic, sleep
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import requests
 from h2hdb import (
@@ -45,9 +51,19 @@ MAX_GID = (1 << 63) - 1
 class KomgaGateway(Protocol):
     library_id: str
 
-    def get_book_ids(self, *, timeout_seconds: float | None = None) -> set[str]: ...
+    def get_book_page(
+        self,
+        page: int,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[dict[str, Any], ...]: ...
 
-    def get_series_ids(self, *, timeout_seconds: float | None = None) -> set[str]: ...
+    def get_series_page(
+        self,
+        page: int,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> tuple[dict[str, Any], ...]: ...
 
     def get_book(
         self, book_id: str, *, timeout_seconds: float | None = None
@@ -112,6 +128,24 @@ def _canonical_artifact_name(book_name: str) -> str | None:
     return f"h2h-{gid}.cbz"
 
 
+def _get_catalog_publications_by_artifact_names(
+    catalog_reader: CatalogReader,
+    artifact_names: list[str],
+    *,
+    revision: CatalogRevision,
+) -> dict[str, CatalogPublication]:
+    publications: dict[str, CatalogPublication] = {}
+    for offset in range(0, len(artifact_names), CATALOG_LOOKUP_BATCH_SIZE):
+        batch = artifact_names[offset : offset + CATALOG_LOOKUP_BATCH_SIZE]
+        publications.update(
+            catalog_reader.get_publications_by_artifact_names(
+                batch,
+                revision=revision,
+            )
+        )
+    return publications
+
+
 def _get_catalog_metadata_by_book_names(
     catalog_reader: CatalogReader,
     book_names: list[str],
@@ -129,15 +163,11 @@ def _get_catalog_metadata_by_book_names(
         if (artifact_name := _canonical_artifact_name(name)) is not None
     }
     artifact_candidates = list(dict.fromkeys(artifact_by_name.values()))
-    publications_by_artifact: dict[str, CatalogPublication] = {}
-    for offset in range(0, len(artifact_candidates), CATALOG_LOOKUP_BATCH_SIZE):
-        batch = artifact_candidates[offset : offset + CATALOG_LOOKUP_BATCH_SIZE]
-        publications_by_artifact.update(
-            catalog_reader.get_publications_by_artifact_names(
-                batch,
-                revision=selected_revision,
-            )
-        )
+    publications_by_artifact = _get_catalog_publications_by_artifact_names(
+        catalog_reader,
+        artifact_candidates,
+        revision=selected_revision,
+    )
 
     publications_by_name: dict[str, CatalogPublication] = {}
     for name, artifact_name in artifact_by_name.items():
@@ -154,44 +184,184 @@ def _get_catalog_metadata_by_book_names(
     return result
 
 
+class _IncompleteSnapshot(Exception):
+    pass
+
+
+class _CatalogHeadAdvanced(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class _SnapshotObservation:
+    fingerprint: str
+    book_count: int
+    series_count: int
+    metadata_was_stable: bool
+
+
+class _SnapshotStore:
+    def __init__(self, path: Path) -> None:
+        self._connection = sqlite3.connect(path)
+        self._book_count = 0
+        self._series_count = 0
+        self._update_count = 0
+        self._connection.execute("PRAGMA foreign_keys = ON")
+        self._connection.executescript(
+            """
+            CREATE TABLE observed_book (
+                book_id TEXT PRIMARY KEY,
+                artifact_name TEXT NOT NULL UNIQUE,
+                series_id TEXT NOT NULL UNIQUE
+            ) WITHOUT ROWID;
+            CREATE TABLE pending_update (
+                book_id TEXT PRIMARY KEY
+                    REFERENCES observed_book(book_id) ON DELETE CASCADE,
+                metadata_json TEXT NOT NULL
+            ) WITHOUT ROWID;
+            CREATE TABLE observed_series (
+                series_id TEXT PRIMARY KEY
+                    REFERENCES observed_book(series_id)
+            ) WITHOUT ROWID;
+            """
+        )
+
+    def close(self) -> None:
+        self._connection.close()
+
+    def reset(self) -> None:
+        with self._connection:
+            self._connection.execute("DELETE FROM pending_update")
+            self._connection.execute("DELETE FROM observed_series")
+            self._connection.execute("DELETE FROM observed_book")
+        self._book_count = 0
+        self._series_count = 0
+        self._update_count = 0
+
+    def add_books(
+        self,
+        rows: list[tuple[str, str, str, KomgaMetadata | None]],
+    ) -> None:
+        try:
+            with self._connection:
+                self._connection.executemany(
+                    """
+                    INSERT INTO observed_book(book_id, artifact_name, series_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        (book_id, artifact_name, series_id)
+                        for book_id, artifact_name, series_id, _ in rows
+                    ),
+                )
+                self._connection.executemany(
+                    """
+                    INSERT INTO pending_update(book_id, metadata_json)
+                    VALUES (?, ?)
+                    """,
+                    (
+                        (
+                            book_id,
+                            json.dumps(
+                                metadata,
+                                ensure_ascii=True,
+                                separators=(",", ":"),
+                                sort_keys=True,
+                            ),
+                        )
+                        for book_id, _, _, metadata in rows
+                        if metadata is not None
+                    ),
+                )
+        except sqlite3.IntegrityError as error:
+            raise _IncompleteSnapshot(
+                "duplicate book id, canonical artifact name, or one-shot series"
+            ) from error
+        self._book_count += len(rows)
+        self._update_count += sum(metadata is not None for *_, metadata in rows)
+
+    def add_series(self, series_ids: list[str]) -> None:
+        try:
+            with self._connection:
+                self._connection.executemany(
+                    "INSERT INTO observed_series(series_id) VALUES (?)",
+                    ((series_id,) for series_id in series_ids),
+                )
+        except sqlite3.IntegrityError as error:
+            raise _IncompleteSnapshot(
+                "duplicate or unreferenced one-shot series"
+            ) from error
+        self._series_count += len(series_ids)
+
+    def count_books(self) -> int:
+        return self._book_count
+
+    def count_series(self) -> int:
+        return self._series_count
+
+    def count_updates(self) -> int:
+        return self._update_count
+
+    def update_batches(self) -> Iterator[dict[str, KomgaMetadata]]:
+        after_book_id = ""
+        while True:
+            rows = self._connection.execute(
+                """
+                SELECT book_id, metadata_json
+                FROM pending_update
+                WHERE book_id > ?
+                ORDER BY book_id
+                LIMIT ?
+                """,
+                (after_book_id, BOOK_METADATA_PATCH_CHUNK_SIZE),
+            ).fetchall()
+            if not rows:
+                return
+            batch: dict[str, KomgaMetadata] = {}
+            for book_id, metadata_json in rows:
+                metadata = json.loads(metadata_json)
+                if not isinstance(book_id, str) or not isinstance(metadata, dict):
+                    raise RuntimeError("Invalid internal Komga snapshot data")
+                batch[book_id] = cast(KomgaMetadata, metadata)
+            yield batch
+            after_book_id = cast(str, rows[-1][0])
+
+    def fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        for row in self._connection.execute(
+            """
+            SELECT book_id, artifact_name, series_id
+            FROM observed_book
+            ORDER BY book_id
+            """
+        ):
+            digest.update(
+                json.dumps(
+                    row,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                ).encode()
+            )
+        for row in self._connection.execute(
+            "SELECT series_id FROM observed_series ORDER BY series_id"
+        ):
+            digest.update(
+                json.dumps(
+                    row,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                ).encode()
+            )
+        return digest.hexdigest()
+
+
 def _book_metadata_is_up_to_date(
     expected_metadata: KomgaMetadata, book: dict[str, Any]
 ) -> bool:
-    return bool(expected_metadata.items() <= book["metadata"].items())
-
-
-def _fetch_books(
-    client: KomgaGateway,
-    book_ids: set[str],
-    *,
-    deadline: float,
-    clock: Callable[[], float],
-) -> tuple[dict[str, dict[str, Any]], set[str]]:
-    books: dict[str, dict[str, Any]] = {}
-    failed_book_ids: set[str] = set()
-    log_progress = _progress_logger("Fetched", len(book_ids))
-
-    def fetch(book_id: str) -> dict[str, Any]:
-        return client.get_book(
-            book_id,
-            timeout_seconds=_remaining_seconds(deadline, clock, operation="book fetch"),
-        )
-
-    with ThreadPoolExecutor(max_workers=KOMGA_MAX_WORKERS) as executor:
-        futures = {executor.submit(fetch, book_id): book_id for book_id in book_ids}
-        for completed, future in enumerate(as_completed(futures), start=1):
-            book_id = futures[future]
-            try:
-                books[book_id] = future.result()
-            except requests.exceptions.RequestException as e:
-                failed_book_ids.add(book_id)
-                logger.debug("Failed to fetch book %s: %s", book_id, e)
-            log_progress(completed)
-    if failed_book_ids:
-        logger.warning(
-            "Failed to fetch %d of %d book(s)", len(failed_book_ids), len(book_ids)
-        )
-    return books, failed_book_ids
+    metadata = book.get("metadata")
+    return isinstance(metadata, dict) and bool(
+        expected_metadata.items() <= metadata.items()
+    )
 
 
 def _patch_chunk(
@@ -343,61 +513,224 @@ def _patch_with_retries(
     return remaining
 
 
-def _update_books_metadata(
+def _required_nonempty_string(
+    item: dict[str, Any],
+    field: str,
+    *,
+    item_kind: str,
+) -> str:
+    value = item.get(field)
+    if not isinstance(value, str) or not value:
+        raise _IncompleteSnapshot(f"{item_kind} has invalid {field}")
+    return value
+
+
+def _collect_book_page(
     client: KomgaGateway,
     catalog_reader: CatalogReader,
-    book_ids: set[str],
+    store: _SnapshotStore,
+    books: tuple[dict[str, Any], ...],
+    *,
+    revision: CatalogRevision,
+    expected_count: int,
+) -> None:
+    parsed: list[tuple[str, str, str, dict[str, Any]]] = []
+    canonical_names: list[str] = []
+    for book in books:
+        book_id = _required_nonempty_string(book, "id", item_kind="Komga book")
+        book_name = _required_nonempty_string(book, "name", item_kind="Komga book")
+        series_id = _required_nonempty_string(
+            book,
+            "seriesId",
+            item_kind="Komga book",
+        )
+        library_id = _required_nonempty_string(
+            book,
+            "libraryId",
+            item_kind="Komga book",
+        )
+        metadata = book.get("metadata")
+        if library_id != client.library_id:
+            raise _IncompleteSnapshot("Komga returned a book from another library")
+        if book.get("oneshot") is not True:
+            raise _IncompleteSnapshot("Komga book is not a One-Shot")
+        if not isinstance(metadata, dict):
+            raise _IncompleteSnapshot("Komga book has invalid metadata")
+        canonical_name = _canonical_artifact_name(book_name)
+        if canonical_name is None:
+            raise _IncompleteSnapshot("Komga book name is not canonical")
+        parsed.append((book_id, canonical_name, series_id, metadata))
+        canonical_names.append(canonical_name)
+
+    if len(set(canonical_names)) != len(canonical_names):
+        raise _IncompleteSnapshot("Komga page has duplicate canonical artifact names")
+    publications = _get_catalog_publications_by_artifact_names(
+        catalog_reader,
+        canonical_names,
+        revision=revision,
+    )
+    if set(publications) != set(canonical_names):
+        raise _IncompleteSnapshot("canonical catalog lookup did not match every book")
+
+    rows: list[tuple[str, str, str, KomgaMetadata | None]] = []
+    for book_id, canonical_name, series_id, current_metadata in parsed:
+        publication = publications[canonical_name]
+        if canonical_name != f"h2h-{publication.gid}.cbz":
+            raise _IncompleteSnapshot(
+                "catalog publication GID does not match book name"
+            )
+        expected_metadata = publication_to_komga_metadata(publication)
+        rows.append(
+            (
+                book_id,
+                canonical_name,
+                series_id,
+                None
+                if expected_metadata.items() <= current_metadata.items()
+                else expected_metadata,
+            )
+        )
+    store.add_books(rows)
+    if store.count_books() > expected_count:
+        raise _IncompleteSnapshot("Komga has extra books")
+
+
+def _collect_series_page(
+    client: KomgaGateway,
+    store: _SnapshotStore,
+    series: tuple[dict[str, Any], ...],
+    *,
+    expected_count: int,
+) -> None:
+    series_ids: list[str] = []
+    for item in series:
+        series_id = _required_nonempty_string(
+            item,
+            "id",
+            item_kind="Komga series",
+        )
+        library_id = _required_nonempty_string(
+            item,
+            "libraryId",
+            item_kind="Komga series",
+        )
+        if library_id != client.library_id:
+            raise _IncompleteSnapshot("Komga returned a series from another library")
+        if item.get("oneshot") is not True:
+            raise _IncompleteSnapshot("Komga series is not a One-Shot")
+        series_ids.append(series_id)
+    if len(set(series_ids)) != len(series_ids):
+        raise _IncompleteSnapshot("Komga page has duplicate One-Shot series")
+    store.add_series(series_ids)
+    if store.count_series() > expected_count:
+        raise _IncompleteSnapshot("Komga has extra One-Shot series")
+
+
+def _reconcile_exact_snapshot(
+    client: KomgaGateway,
+    catalog_reader: CatalogReader,
+    store: _SnapshotStore,
     *,
     revision: CatalogRevision,
     deadline: float,
     clock: Callable[[], float],
     sleep_for: Callable[[float], None],
-) -> bool:
-    """Return whether a complete pass needed no metadata writes."""
-    if not book_ids:
-        logger.info("No books to check in library %s", client.library_id)
-        return True
+) -> _SnapshotObservation:
+    expected_count = revision.artifact_count
+    store.reset()
 
-    logger.info("Fetching Komga metadata for %d book(s)", len(book_ids))
-    books, failed_book_ids = _fetch_books(
-        client,
-        book_ids,
-        deadline=deadline,
-        clock=clock,
-    )
-
-    catalog_metadata_by_name = _get_catalog_metadata_by_book_names(
-        catalog_reader,
-        [book["name"] for book in books.values()],
-        revision=revision,
-    )
-
-    # BookDto nests title/summary/releaseDate/authors under "metadata" --
-    # comparing against the top-level BookDto would never match.
-    updates: dict[str, KomgaMetadata] = {}
-    for book_id, book in books.items():
-        expected_metadata = catalog_metadata_by_name.get(book["name"])
-        if expected_metadata is None:
-            continue
-        if not _book_metadata_is_up_to_date(expected_metadata, book):
-            updates[book_id] = expected_metadata
-    logger.info("%d of %d book(s) are out of date", len(updates), len(books))
-    if not updates:
-        return not failed_book_ids
-
-    remaining = _patch_with_retries(
-        client,
-        updates,
-        deadline=deadline,
-        clock=clock,
-        sleep_for=sleep_for,
-    )
-    if remaining:
-        raise RuntimeError(
-            f"Komga metadata update did not verify for {len(remaining)} "
-            f"book(s): {', '.join(sorted(remaining))}"
+    book_page_number = 0
+    while True:
+        try:
+            books = client.get_book_page(
+                book_page_number,
+                timeout_seconds=_remaining_seconds(
+                    deadline,
+                    clock,
+                    operation="book pagination",
+                ),
+            )
+        except requests.exceptions.RequestException as error:
+            raise _IncompleteSnapshot("Komga book page request failed") from error
+        if not books:
+            break
+        _collect_book_page(
+            client,
+            catalog_reader,
+            store,
+            books,
+            revision=revision,
+            expected_count=expected_count,
         )
-    return False
+        book_page_number += 1
+
+    book_count = store.count_books()
+    if book_count != expected_count:
+        raise _IncompleteSnapshot(
+            f"Komga book count {book_count} does not match catalog artifact "
+            f"count {expected_count}"
+        )
+
+    series_page_number = 0
+    while True:
+        try:
+            series = client.get_series_page(
+                series_page_number,
+                timeout_seconds=_remaining_seconds(
+                    deadline,
+                    clock,
+                    operation="series pagination",
+                ),
+            )
+        except requests.exceptions.RequestException as error:
+            raise _IncompleteSnapshot("Komga series page request failed") from error
+        if not series:
+            break
+        _collect_series_page(
+            client,
+            store,
+            series,
+            expected_count=expected_count,
+        )
+        series_page_number += 1
+
+    series_count = store.count_series()
+    if series_count != expected_count:
+        raise _IncompleteSnapshot(
+            f"Komga One-Shot series count {series_count} does not match catalog "
+            f"artifact count {expected_count}"
+        )
+
+    observed_head = catalog_reader.get_catalog_revision()
+    if observed_head.revision != revision.revision:
+        raise _CatalogHeadAdvanced
+
+    update_count = store.count_updates()
+    logger.info(
+        "%d of %d exactly matched Komga book(s) are out of date",
+        update_count,
+        book_count,
+    )
+    for updates in store.update_batches():
+        remaining = _patch_with_retries(
+            client,
+            updates,
+            deadline=deadline,
+            clock=clock,
+            sleep_for=sleep_for,
+        )
+        if remaining:
+            raise RuntimeError(
+                f"Komga metadata update did not verify for {len(remaining)} "
+                f"book(s): {', '.join(sorted(remaining))}"
+            )
+
+    return _SnapshotObservation(
+        fingerprint=store.fingerprint(),
+        book_count=book_count,
+        series_count=series_count,
+        metadata_was_stable=update_count == 0,
+    )
 
 
 def _validate_settling_timing(
@@ -467,147 +800,125 @@ def _sync_komga_library(
         logger.info(
             "Triggering scan and analyze for library %s", active_client.library_id
         )
-        # Analyze in particular can run well past REQUEST_TIMEOUT_SECONDS on
-        # Komga's side; the caller only needs the job queued, not finished,
-        # since the settling loop below re-polls until it's done.
-        try:
-            active_client.scan_library(
-                timeout_seconds=_remaining_seconds(
-                    deadline, clock, operation="scan request"
-                )
+        active_client.scan_library(
+            timeout_seconds=_remaining_seconds(
+                deadline,
+                clock,
+                operation="scan request",
             )
-        except requests.exceptions.Timeout:
-            logger.info(
-                "Scan request timed out waiting for a response; treating as queued"
+        )
+        active_client.analyze_library(
+            timeout_seconds=_remaining_seconds(
+                deadline,
+                clock,
+                operation="analyze request",
             )
-        try:
-            active_client.analyze_library(
-                timeout_seconds=_remaining_seconds(
-                    deadline, clock, operation="analyze request"
-                )
-            )
-        except requests.exceptions.Timeout:
-            logger.info(
-                "Analyze request timed out waiting for a response; treating as queued"
-            )
+        )
 
-    previous_book_ids: set[str] | None = None
-    previous_series_ids: set[str] | None = None
+    previous_fingerprint: str | None = None
     previous_catalog_revision: int | None = None
     stable_since: float | None = None
-    while True:
-        if clock() >= deadline:
-            raise TimeoutError(
-                f"Timed out after {timeout_seconds:g}s waiting for Komga library "
-                f"{active_client.library_id} to settle"
-            )
-
-        revision = catalog_reader.get_catalog_revision()
-        book_ids = active_client.get_book_ids(
-            timeout_seconds=_remaining_seconds(
-                deadline, clock, operation="book pagination"
-            )
-        )
+    with TemporaryDirectory(prefix="h2hdb-komga-snapshot-") as directory:
+        store = _SnapshotStore(Path(directory) / "snapshot.sqlite3")
         try:
-            metadata_was_stable = _update_books_metadata(
-                active_client,
-                catalog_reader,
-                book_ids,
-                revision=revision,
-                deadline=deadline,
-                clock=clock,
-                sleep_for=sleep_for,
-            )
-        except CatalogRevisionNotFoundError as error:
-            # Core accepts only the current head.  A head advance between any
-            # two bounded artifact-name reads invalidates the whole metadata
-            # map before a PATCH can be constructed.  Discard every observation
-            # from that pass and retry from a fresh head.
-            previous_book_ids = None
-            previous_series_ids = None
-            previous_catalog_revision = None
-            stable_since = None
-            logger.info(
-                "Catalog head advanced during pinned reconciliation; "
-                "restarting from the current head"
-            )
-            remaining_seconds = deadline - clock()
-            if remaining_seconds <= 0:
-                raise TimeoutError(
-                    f"Timed out after {timeout_seconds:g}s waiting for Komga "
-                    f"library {active_client.library_id} to settle"
-                ) from error
-            sleep_for(min(poll_interval_seconds, remaining_seconds))
-            continue
-        series_ids = active_client.get_series_ids(
-            timeout_seconds=_remaining_seconds(
-                deadline, clock, operation="series pagination"
-            )
-        )
-        observed_revision = catalog_reader.get_catalog_revision()
-        observed_at = clock()
-        if observed_at >= deadline:
-            raise TimeoutError(
-                f"Timed out after {timeout_seconds:g}s waiting for Komga library "
-                f"{active_client.library_id} to settle"
-            )
-
-        ids_changed = (
-            previous_book_ids is not None
-            and previous_series_ids is not None
-            and (book_ids != previous_book_ids or series_ids != previous_series_ids)
-        )
-        revision_changed = observed_revision.revision != revision.revision or (
-            previous_catalog_revision is not None
-            and previous_catalog_revision != revision.revision
-        )
-        if metadata_was_stable and not revision_changed:
-            if stable_since is None or ids_changed:
-                stable_since = observed_at
-            stable_for = observed_at - stable_since
-            if stable_for >= stable_observation_seconds:
-                final_revision = catalog_reader.get_catalog_revision()
-                if final_revision.revision == revision.revision:
-                    logger.info(
-                        "Library %s was stable for %.1fs at catalog revision %d; "
-                        "sync complete",
-                        active_client.library_id,
-                        stable_for,
-                        revision.revision,
+            while True:
+                if clock() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out after {timeout_seconds:g}s waiting for Komga "
+                        f"library {active_client.library_id} to settle"
                     )
-                    return
-                stable_since = None
-                observed_revision = final_revision
-                logger.info(
-                    "Catalog revision changed during final stability check; "
-                    "polling again"
-                )
-            logger.info(
-                "Library %s stable for %.1f/%.1fs (%d books, %d series)",
-                active_client.library_id,
-                stable_for,
-                stable_observation_seconds,
-                len(book_ids),
-                len(series_ids),
-            )
-        else:
-            stable_since = None
-            if revision_changed:
-                logger.info(
-                    "Catalog revision changed during reconciliation; polling again"
-                )
-            else:
-                logger.info(
-                    "Library %s changed during reconciliation; polling again",
-                    active_client.library_id,
-                )
 
-        previous_book_ids, previous_series_ids = book_ids, series_ids
-        previous_catalog_revision = observed_revision.revision
-        remaining_seconds = deadline - clock()
-        if remaining_seconds <= 0:
-            raise TimeoutError(
-                f"Timed out after {timeout_seconds:g}s waiting for Komga library "
-                f"{active_client.library_id} to settle"
-            )
-        sleep_for(min(poll_interval_seconds, remaining_seconds))
+                revision = catalog_reader.get_catalog_revision()
+                try:
+                    observation = _reconcile_exact_snapshot(
+                        active_client,
+                        catalog_reader,
+                        store,
+                        revision=revision,
+                        deadline=deadline,
+                        clock=clock,
+                        sleep_for=sleep_for,
+                    )
+                except CatalogRevisionNotFoundError, _CatalogHeadAdvanced:
+                    previous_fingerprint = None
+                    previous_catalog_revision = None
+                    stable_since = None
+                    logger.info(
+                        "Catalog head advanced during pinned reconciliation; "
+                        "restarting from the current head"
+                    )
+                except _IncompleteSnapshot as error:
+                    previous_fingerprint = None
+                    previous_catalog_revision = None
+                    stable_since = None
+                    logger.info(
+                        "Komga exact-set observation is incomplete: %s; polling again",
+                        error,
+                    )
+                else:
+                    observed_at = clock()
+                    if observed_at >= deadline:
+                        raise TimeoutError(
+                            f"Timed out after {timeout_seconds:g}s waiting for Komga "
+                            f"library {active_client.library_id} to settle"
+                        )
+
+                    snapshot_changed = (
+                        previous_fingerprint is not None
+                        and previous_fingerprint != observation.fingerprint
+                    )
+                    revision_changed = (
+                        previous_catalog_revision is not None
+                        and previous_catalog_revision != revision.revision
+                    )
+                    if observation.metadata_was_stable and not revision_changed:
+                        if stable_since is None or snapshot_changed:
+                            stable_since = observed_at
+                        stable_for = observed_at - stable_since
+                        if stable_for >= stable_observation_seconds:
+                            final_revision = catalog_reader.get_catalog_revision()
+                            if final_revision.revision == revision.revision:
+                                logger.info(
+                                    "Library %s exactly matched %d catalog "
+                                    "artifact(s) and was stable for %.1fs at catalog "
+                                    "revision %d; sync complete",
+                                    active_client.library_id,
+                                    observation.book_count,
+                                    stable_for,
+                                    revision.revision,
+                                )
+                                return
+                            stable_since = None
+                            logger.info(
+                                "Catalog revision changed during final stability "
+                                "check; polling again"
+                            )
+                        logger.info(
+                            "Library %s exact-set stable for %.1f/%.1fs "
+                            "(%d books, %d One-Shot series)",
+                            active_client.library_id,
+                            stable_for,
+                            stable_observation_seconds,
+                            observation.book_count,
+                            observation.series_count,
+                        )
+                    else:
+                        stable_since = None
+                        logger.info(
+                            "Library %s changed during exact-set reconciliation; "
+                            "polling again",
+                            active_client.library_id,
+                        )
+
+                    previous_fingerprint = observation.fingerprint
+                    previous_catalog_revision = revision.revision
+
+                remaining_seconds = deadline - clock()
+                if remaining_seconds <= 0:
+                    raise TimeoutError(
+                        f"Timed out after {timeout_seconds:g}s waiting for Komga "
+                        f"library {active_client.library_id} to settle"
+                    )
+                sleep_for(min(poll_interval_seconds, remaining_seconds))
+        finally:
+            store.close()

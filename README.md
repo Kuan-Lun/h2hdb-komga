@@ -19,8 +19,9 @@ of at most 128 against one pinned revision. Legacy friendly, pure-GID, and
 content-addressed filenames are intentionally unsupported. A revision change
 resets the stability window, and completion performs a final revision check.
 This adapter does not know the library's hash-shard paths and never reads core
-repository internals. Books with no published canonical match are left
-unchanged.
+repository internals. An unmatched, duplicate, noncanonical, non-One-Shot,
+partial, or extra Komga item makes the observation incomplete, so no metadata
+from that pass is patched.
 
 The H2HDB database is always opened in read-only mode. Startup performs the
 exact epoch-3 `READY` audit through H2HDB's public database opener but never
@@ -99,19 +100,32 @@ trigger scans from the Komga UI, another API client, or another scheduler.
 
 `trigger_scan` defaults to `true`. Set it to `false` to skip requesting a
 Komga scan/analyze and only reconcile metadata already visible in the library.
-Afterward, the command polls every five seconds and rechecks every current
-book. It exits only after book/series IDs and metadata remain stable for 30
-seconds; the default timeout is one hour and can be changed with
-`--timeout-seconds`. This observation window allows Komga's asynchronous
-scan/analyze jobs and transient book fetch failures to become visible before
-completion. Every catalog lookup in one pass is pinned to the same current
-H2HDB head. If publication advances during a batched lookup, the partial pass
-is discarded before metadata is patched and the next poll starts again from
-the new head. Each HTTP request, PATCH verification, retry, and retry
-delay uses the remaining cooperative budget. The CLI also runs the complete
-operation in a disposable worker process and kills it at the wall-clock
-deadline, so a slow-drip socket, blocked database gate, or executor shutdown
-cannot extend the documented hard timeout indefinitely.
+Afterward, the command polls every five seconds and page-reads every current
+book and series. It checks that every book belongs to the configured library,
+is a One-Shot, has a unique canonical artifact name and unique series, and
+matches a publication from the pinned catalog revision. The referenced series
+must exactly equal the library's unique One-Shot series, and both counts must
+equal the revision's artifact count. Exact empty catalog and Komga sets are
+valid. A temporary file-backed index enforces whole-library uniqueness while
+keeping memory bounded; catalog lookups use at most 128 names, Komga pages use
+at most 500 items, and pending updates are read in keyset batches of at most
+200. No metadata is patched until the complete exact-set proof succeeds.
+
+The command exits only after the exact set and metadata remain unchanged and
+write-free for 30 seconds; the default timeout is one hour and can be changed
+with `--timeout-seconds`. This observation window allows Komga's asynchronous
+scan/analyze jobs and transient page failures to become visible before
+completion. A scan or analyze request must receive a successful response;
+client-side timeout cannot prove that Komga accepted it, so the run fails
+closed and the next invocation retries the complete operation. Every catalog
+lookup in one pass is pinned to the same current H2HDB head. If publication
+advances during a batched lookup, the partial pass is discarded before
+metadata is patched and the next poll starts again from the new head. Each
+HTTP request, PATCH verification, retry, and retry delay uses the remaining
+cooperative budget. The CLI also runs the complete operation in a disposable
+worker process and kills it at the wall-clock deadline, so a slow-drip socket,
+blocked database gate, or executor shutdown cannot extend the documented hard
+timeout indefinitely.
 
 #### h2hdb-config.json
 
