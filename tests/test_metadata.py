@@ -1,18 +1,24 @@
 from datetime import UTC, datetime
 
-from h2hdb import CatalogContributor, CatalogPublication, CatalogSubject
+import pytest
+from h2hdb import (
+    CatalogContributor,
+    CatalogPublication,
+    CatalogReader,
+    CatalogSubject,
+)
 
 from h2hdb_komga.metadata import publication_to_komga_metadata
 from h2hdb_komga.sync import _get_catalog_metadata_by_book_names
 
-from .helpers import FakeCatalogReader
+from .helpers import FakeCatalogReader, canonical_catalog_artifact
 
 
-def _publication() -> CatalogPublication:
+def _publication(gid: int = 42) -> CatalogPublication:
     return CatalogPublication(
-        publication_id="urn:h2h:gallery:42",
-        gid=42,
-        source_gallery_name="[Artist] Friendly Gallery [42]",
+        publication_id=f"urn:h2h:gallery:{gid}",
+        gid=gid,
+        source_gallery_name=f"[Artist] Friendly Gallery [{gid}]",
         source_title="Raw Gallery Title",
         title="Display Fallback Must Not Be Used",
         sort_title="a published gallery",
@@ -21,6 +27,9 @@ def _publication() -> CatalogPublication:
         published_at=datetime(2024, 2, 3, 4, 5, tzinfo=UTC),
         modified_at=datetime(2026, 8, 1, tzinfo=UTC),
         downloaded_at=datetime(2025, 6, 7, 8, 9, tzinfo=UTC),
+        page_count=0,
+        cover=None,
+        thumbnail=None,
         contributors=(CatalogContributor(name="An Uploader", role="uploader"),),
         subjects=(
             CatalogSubject(name="An Artist", scheme="h2h:tag:artist", code="artist"),
@@ -29,6 +38,7 @@ def _publication() -> CatalogPublication:
             CatalogSubject(name="", scheme="h2h:tag:misc", code="misc"),
             CatalogSubject(name="award winner", scheme="urn:subject"),
         ),
+        artifacts=(canonical_catalog_artifact(gid),),
     )
 
 
@@ -60,6 +70,9 @@ def test_blank_raw_title_does_not_overwrite_komga_title() -> None:
         published_at=publication.published_at,
         modified_at=publication.modified_at,
         downloaded_at=publication.downloaded_at,
+        page_count=publication.page_count,
+        cover=publication.cover,
+        thumbnail=publication.thumbnail,
         contributors=publication.contributors,
         subjects=publication.subjects,
         artifacts=publication.artifacts,
@@ -84,13 +97,14 @@ def test_canonical_artifact_lookup_accepts_komga_name_without_cbz_suffix() -> No
 
     assert result == {"h2h-42": publication_to_komga_metadata(publication)}
     assert reader.artifact_name_calls == [(artifact_name,)]
-    assert reader.list_calls == []
+    assert reader.discovery_calls == 0
 
 
 def test_artifact_lookup_chunks_129_canonical_names_on_one_pinned_revision() -> None:
-    publication = _publication()
     artifact_names = [f"h2h-{gid}.cbz" for gid in range(1, 130)]
-    reader = FakeCatalogReader(dict.fromkeys(artifact_names, publication))
+    reader = FakeCatalogReader(
+        {f"h2h-{gid}.cbz": _publication(gid) for gid in range(1, 130)}
+    )
     revision = reader.get_catalog_revision()
 
     result = _get_catalog_metadata_by_book_names(
@@ -102,6 +116,24 @@ def test_artifact_lookup_chunks_129_canonical_names_on_one_pinned_revision() -> 
     assert len(result) == 129
     assert tuple(len(batch) for batch in reader.artifact_name_calls) == (128, 1)
     assert all(observed is revision for observed in reader.artifact_revisions)
+
+
+def test_fake_catalog_reader_implements_the_complete_public_protocol() -> None:
+    reader = FakeCatalogReader({"h2h-42.cbz": _publication()})
+    public_reader: CatalogReader = reader
+
+    assert isinstance(public_reader, CatalogReader)
+
+
+def test_fake_catalog_reader_requires_exact_acquisition_identity() -> None:
+    publication = _publication()
+    artifact = publication.artifacts[0]
+    digest = artifact.storage_object.sha256
+
+    assert artifact.artifact_id == (f"urn:h2h:artifact:acquisition:42:sha256:{digest}")
+    assert artifact.name == "h2h-42.cbz"
+    with pytest.raises(ValueError, match="sole acquisition"):
+        FakeCatalogReader({"h2h-43.cbz": publication})
 
 
 def test_legacy_and_malformed_names_are_not_catalog_lookup_keys() -> None:
@@ -127,4 +159,4 @@ def test_legacy_and_malformed_names_are_not_catalog_lookup_keys() -> None:
     assert result == {}
     assert reader.revision_calls == 1
     assert reader.artifact_name_calls == []
-    assert reader.list_calls == []
+    assert reader.discovery_calls == 0

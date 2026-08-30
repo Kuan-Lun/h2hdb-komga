@@ -1,28 +1,62 @@
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from hashlib import sha256
 
 from h2hdb import (
+    DEFAULT_CATALOG_DISCOVERY_QUERY,
     CatalogArtifact,
-    CatalogArtifactCursor,
-    CatalogArtifactPage,
-    CatalogPage,
+    CatalogDiscoveryCursor,
+    CatalogDiscoveryPage,
+    CatalogDiscoveryQuery,
+    CatalogFacetCursor,
+    CatalogFacetKind,
+    CatalogFacetPage,
+    CatalogImageResource,
     CatalogPublication,
-    CatalogRecentArtifactWindow,
+    CatalogPublicationPresentation,
     CatalogRecentOrder,
+    CatalogRecentWindow,
     CatalogRevision,
     CatalogRevisionNotFoundError,
+    StorageObjectDescriptor,
+    StorageObjectKey,
 )
+
+
+def canonical_catalog_artifact(gid: int) -> CatalogArtifact:
+    content = f"h2hdb-komga-test-artifact:{gid}".encode()
+    digest = sha256(content).hexdigest()
+    return CatalogArtifact(
+        artifact_id=(f"urn:h2h:artifact:acquisition:{gid}:sha256:{digest}"),
+        name=f"h2h-{gid}.cbz",
+        storage_object=StorageObjectDescriptor(
+            key=StorageObjectKey(
+                codec="test-memory-v1",
+                segments=("acquisitions", f"h2h-{gid}.cbz"),
+            ),
+            size_bytes=len(content),
+            sha256=digest,
+            modified_at=datetime(2026, 8, 1, tzinfo=UTC),
+        ),
+        media_type="application/vnd.comicbook+zip",
+    )
 
 
 class FakeCatalogReader:
     def __init__(self, publications_by_name: Mapping[str, CatalogPublication]) -> None:
         self.publications_by_name = dict(publications_by_name)
+        for name, publication in self.publications_by_name.items():
+            if len(publication.artifacts) != 1 or publication.artifacts[0].name != name:
+                raise ValueError(
+                    "fake artifact lookup key must name the publication's sole "
+                    "acquisition"
+                )
         self.artifact_name_calls: list[tuple[str, ...]] = []
         self.artifact_revision_calls: list[int] = []
         self.artifact_revisions: list[CatalogRevision] = []
         self.revision_calls = 0
         self.current_revision = 1
-        self.list_calls: list[tuple[int, int, int]] = []
+        self.discovery_calls = 0
 
     def get_catalog_revision(self, revision: int | None = None) -> CatalogRevision:
         self.revision_calls += 1
@@ -51,47 +85,38 @@ class FakeCatalogReader:
             }.values()
         )
 
-    def list_publications(
+    def discover_publications(
         self,
         *,
-        query: str | None = None,
-        offset: int = 0,
+        query: CatalogDiscoveryQuery = DEFAULT_CATALOG_DISCOVERY_QUERY,
+        after: CatalogDiscoveryCursor | None = None,
         limit: int = 50,
         revision: CatalogRevision | int | None = None,
-        require_artifact: bool = False,
-    ) -> CatalogPage:
-        assert query is None and not require_artifact
-        assert revision is not None
-        assert 1 <= limit <= 128
-        selected_revision = self._revision_at(revision)
-        publications = self._publications()
-        self.list_calls.append((offset, limit, selected_revision.revision))
-        return CatalogPage(
-            revision=selected_revision,
-            publications=publications[offset : offset + limit],
-            offset=offset,
-            limit=limit,
-            total=len(publications),
-        )
+    ) -> CatalogDiscoveryPage:
+        self.discovery_calls += 1
+        del query, after, limit, revision
+        raise AssertionError("discovery feed must not be used by Komga sync")
 
-    def list_artifact_publications(
+    def list_publication_facets(
         self,
         *,
-        after: CatalogArtifactCursor | None = None,
+        facet: CatalogFacetKind,
+        query: CatalogDiscoveryQuery = DEFAULT_CATALOG_DISCOVERY_QUERY,
+        after: CatalogFacetCursor | None = None,
         limit: int = 50,
         revision: CatalogRevision | int | None = None,
-    ) -> CatalogArtifactPage:
-        del after, limit, revision
-        raise AssertionError("artifact feed must not be used by Komga sync")
+    ) -> CatalogFacetPage:
+        del facet, query, after, limit, revision
+        raise AssertionError("facet feed must not be used by Komga sync")
 
-    def list_recent_artifact_publications(
+    def list_recent_publications(
         self,
         *,
         order: CatalogRecentOrder,
         revision: CatalogRevision | int | None = None,
-    ) -> CatalogRecentArtifactWindow:
+    ) -> CatalogRecentWindow:
         del order, revision
-        raise AssertionError("recent artifact feed must not be used by Komga sync")
+        raise AssertionError("recent feed must not be used by Komga sync")
 
     def get_publication(
         self,
@@ -101,6 +126,25 @@ class FakeCatalogReader:
     ) -> CatalogPublication | None:
         del publication_id, revision
         raise AssertionError("get_publication must not be used by Komga sync")
+
+    def get_publication_presentation(
+        self,
+        publication_id: str,
+        *,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogPublicationPresentation | None:
+        del publication_id, revision
+        raise AssertionError("presentation must not be used by Komga sync")
+
+    def get_publication_page(
+        self,
+        publication_id: str,
+        page_index: int,
+        *,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogImageResource | None:
+        del publication_id, page_index, revision
+        raise AssertionError("publication pages must not be used by Komga sync")
 
     def get_publications_by_artifact_names(
         self,

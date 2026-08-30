@@ -173,6 +173,9 @@ schema。
   normalize 後以 public artifact-name lookup 查詢；不得重新加入 pure GID、
   content-addressed、friendly `[gid]` 或 catalog pagination fallback。每個
   lookup pass 都 pin 同一 revision。
+- Komga library只能 read-only mount ingest-managed
+  `current/acquisitions/`；不得 mount包含 standalone OPDS artwork的整個
+  `current/`，也不得把storage key codec或shard derivation複製到本 consumer。
 - core head 在 pinned lookup 中推進時，必須在建立任何 PATCH 前丟棄整個 pass，
   清除 local observation，並從 fresh current head 重試；不得混用兩個 head。
 - 每次 poll 都以 bounded Komga pages 重新 reconcile 所有 current `BookDto` 與
@@ -201,7 +204,7 @@ schema。
   只有本 coordinated CLI job 可以觸發 scan/analyze，不得由 Komga UI、其他
   API client 或 scheduler 執行未持鎖的 scan。
 - CLI 將 `CoreConfig.database.access_mode` 強制改為 read-only，再呼叫 top-level
-  `open_database()` 執行 epoch-3 `READY` audit。不得 import core internals
+  `open_database()` 執行 epoch-3/schema-version-2 `READY` audit。不得 import core internals
   或呼叫 `migrate()`。outer process supervisor 必須維持 wall-clock hard
   deadline，即使 socket、database gate 或 thread 不合作也能終止 worker。
 

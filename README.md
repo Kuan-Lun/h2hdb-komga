@@ -23,9 +23,16 @@ repository internals. An unmatched, duplicate, noncanonical, non-One-Shot,
 partial, or extra Komga item makes the observation incomplete, so no metadata
 from that pass is patched.
 
+Point the Komga library at the ingest-managed `current/acquisitions` subtree.
+Do not mount the enclosing `current` directory: it also contains the separate
+`artwork` tree used for OPDS thumbnails, which is not publication content for
+Komga to scan.
+
 The H2HDB database is always opened in read-only mode. Startup performs the
-exact epoch-3 `READY` audit through H2HDB's public database opener but never
-initializes or migrates schema; schema ownership stays with H2HDB core.
+exact epoch-3/schema-version-2 `READY` audit through H2HDB's public database
+opener but never initializes or migrates schema; schema ownership stays with
+H2HDB core. Schema version 1 is not accepted by this release and has no
+compatibility path: rebuild it through the owning core/ingest deployment.
 
 ---
 
@@ -133,7 +140,7 @@ timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.27.0,<0.28`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.28.0,<0.29`. Any
 configured database access mode is overridden to `read-only` by this CLI.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
 for a dedicated read-only database account and password.

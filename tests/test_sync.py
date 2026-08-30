@@ -15,7 +15,7 @@ from h2hdb_komga.coordination import LibraryUnavailable
 from h2hdb_komga.metadata import KomgaMetadata, publication_to_komga_metadata
 from h2hdb_komga.sync import sync_komga_library
 
-from .helpers import FakeCatalogReader
+from .helpers import FakeCatalogReader, canonical_catalog_artifact
 
 
 class FakeClock:
@@ -150,6 +150,10 @@ def _publication(gid: int = 7) -> CatalogPublication:
         published_at=datetime(2025, 1, 2, tzinfo=UTC),
         modified_at=datetime(2026, 8, 1, tzinfo=UTC),
         downloaded_at=datetime(2025, 1, 3, tzinfo=UTC),
+        page_count=0,
+        cover=None,
+        thumbnail=None,
+        artifacts=(canonical_catalog_artifact(gid),),
     )
 
 
