@@ -149,6 +149,7 @@ def _publication(gid: int = 7) -> CatalogPublication:
         language="en",
         published_at=datetime(2025, 1, 2, tzinfo=UTC),
         modified_at=datetime(2026, 8, 1, tzinfo=UTC),
+        downloaded_at=datetime(2025, 1, 3, tzinfo=UTC),
     )
 
 

@@ -20,6 +20,7 @@ def _publication() -> CatalogPublication:
         language="en",
         published_at=datetime(2024, 2, 3, 4, 5, tzinfo=UTC),
         modified_at=datetime(2026, 8, 1, tzinfo=UTC),
+        downloaded_at=datetime(2025, 6, 7, 8, 9, tzinfo=UTC),
         contributors=(CatalogContributor(name="An Uploader", role="uploader"),),
         subjects=(
             CatalogSubject(name="An Artist", scheme="h2h:tag:artist", code="artist"),
@@ -58,6 +59,7 @@ def test_blank_raw_title_does_not_overwrite_komga_title() -> None:
         language=publication.language,
         published_at=publication.published_at,
         modified_at=publication.modified_at,
+        downloaded_at=publication.downloaded_at,
         contributors=publication.contributors,
         subjects=publication.subjects,
         artifacts=publication.artifacts,

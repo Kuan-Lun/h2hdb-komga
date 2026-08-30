@@ -7,6 +7,8 @@ from h2hdb import (
     CatalogArtifactPage,
     CatalogPage,
     CatalogPublication,
+    CatalogRecentArtifactWindow,
+    CatalogRecentOrder,
     CatalogRevision,
     CatalogRevisionNotFoundError,
 )
@@ -81,6 +83,15 @@ class FakeCatalogReader:
     ) -> CatalogArtifactPage:
         del after, limit, revision
         raise AssertionError("artifact feed must not be used by Komga sync")
+
+    def list_recent_artifact_publications(
+        self,
+        *,
+        order: CatalogRecentOrder,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogRecentArtifactWindow:
+        del order, revision
+        raise AssertionError("recent artifact feed must not be used by Komga sync")
 
     def get_publication(
         self,
