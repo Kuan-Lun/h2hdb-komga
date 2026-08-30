@@ -159,7 +159,9 @@ schema。
 
 - `config_loader.py` 擁有 frozen `KomgaConfig` 與 JSON loading。
   `coordination_root` 是 required absolute path，指向 ingest
-  `.h2hdb-state/coordination` 的獨立 read-only mount。
+  library root 下與 private `.h2hdb-state` 同層的
+  `.h2hdb-coordination` 目錄，並以獨立 read-only bind 掛載。
+  Consumer 不得掛入 private `.h2hdb-state`。
   `coordination.py` 擁有 reader fencing，必須以 descriptor-relative、逐層
   `O_NOFOLLOW` 且 `O_NONBLOCK` 的方式只讀開啟 regular
   `publication.lock`，不得建立或修改 coordination state。
