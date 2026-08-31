@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-08-30T17:24:54+00:00",
-  "manifest_sha256": "abb6b885ce44c957ffb72e37c1643f1b11e9ca48a887bd826cccd9a157957f48",
+  "checked_at": "2026-08-31T01:42:28+00:00",
+  "manifest_sha256": "bb4d713fb1e047d464763420e4929005f49c5b5d01a6721d783a5dfe4b8533af",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.8.1",
+  "project_version": "0.9.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,9 +21,9 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.27.0,<0.28",
+      "declared": "h2hdb>=0.28.0,<0.29",
       "group": "runtime",
-      "latest": "0.26.0",
+      "latest": "0.27.0",
       "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "2026-08-31 full direct build, runtime, development, and Node registry review completed. h2hdb 0.27.0 is the local cross-repository cohort candidate and may precede registry publication; its required CatalogPublication.downloaded_at field and expanded CatalogReader protocol were validated against sibling source with strict mypy, runtime structural inspection, and the complete test suite. Other dependency declarations are unchanged from the reviewed 0.8.0 release, and the canonical full gate validates the selected compatible set.",
+    "note": "Reviewed every direct build, runtime, optional-development, and Node development candidate against current registry metadata and Python 3.14 support. Current candidate releases remain within the declared ranges except h2hdb: local source h2hdb 0.28.0 was validated with this breaking feature, while the registry latest remains 0.27.0; h2hdb 0.28.0 must be published before h2hdb-komga 0.9.0. Retained the h2hdb <0.29 and requests <3 compatibility boundaries.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
