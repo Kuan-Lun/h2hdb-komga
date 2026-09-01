@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-08-31T01:42:28+00:00",
-  "manifest_sha256": "bb4d713fb1e047d464763420e4929005f49c5b5d01a6721d783a5dfe4b8533af",
+  "checked_at": "2026-09-01T21:07:36+00:00",
+  "manifest_sha256": "f03f7f56245d1e4557295b6127c7aad10a0c955a69ba92d0b30315f30f936440",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.9.0",
+  "project_version": "0.10.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,9 +21,9 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.28.0,<0.29",
+      "declared": "h2hdb>=0.29.0,<0.30.0",
       "group": "runtime",
-      "latest": "0.27.0",
+      "latest": "0.28.3",
       "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct build, runtime, optional-development, and Node development candidate against current registry metadata and Python 3.14 support. Current candidate releases remain within the declared ranges except h2hdb: local source h2hdb 0.28.0 was validated with this breaking feature, while the registry latest remains 0.27.0; h2hdb 0.28.0 must be published before h2hdb-komga 0.9.0. Retained the h2hdb <0.29 and requests <3 compatibility boundaries.",
+    "note": "Reviewed all build, runtime, optional, development, and Node direct dependencies for 0.10.0; only the intentional h2hdb 0.29 compatibility-lane requirement changes, with no additional dependency upgrade needed.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
