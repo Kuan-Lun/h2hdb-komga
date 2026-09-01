@@ -5,6 +5,7 @@ from hashlib import sha256
 from h2hdb import (
     DEFAULT_CATALOG_DISCOVERY_QUERY,
     CatalogArtifact,
+    CatalogDiscoveryBundle,
     CatalogDiscoveryCursor,
     CatalogDiscoveryPage,
     CatalogDiscoveryQuery,
@@ -96,6 +97,18 @@ class FakeCatalogReader:
         self.discovery_calls += 1
         del query, after, limit, revision
         raise AssertionError("discovery feed must not be used by Komga sync")
+
+    def discover_publications_with_facets(
+        self,
+        *,
+        query: CatalogDiscoveryQuery = DEFAULT_CATALOG_DISCOVERY_QUERY,
+        after: CatalogDiscoveryCursor | None = None,
+        limit: int = 50,
+        facet_limit: int = 128,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogDiscoveryBundle:
+        del query, after, limit, facet_limit, revision
+        raise AssertionError("discovery bundle must not be used by Komga sync")
 
     def list_publication_facets(
         self,
