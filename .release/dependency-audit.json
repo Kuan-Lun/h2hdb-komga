@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-01T21:07:36+00:00",
-  "manifest_sha256": "f03f7f56245d1e4557295b6127c7aad10a0c955a69ba92d0b30315f30f936440",
+  "checked_at": "2026-09-03T21:11:41+00:00",
+  "manifest_sha256": "31b857beeb03ae0ac7d9913bd449910956061b32b5df7a8d6ac5bb5cb8b6d007",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.10.0",
+  "project_version": "0.11.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,9 +21,9 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.29.0,<0.30.0",
+      "declared": "h2hdb>=0.30.0,<0.31.0",
       "group": "runtime",
-      "latest": "0.28.3",
+      "latest": "0.29.0",
       "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
@@ -59,7 +59,7 @@
     {
       "declared": "ruff>=0.16.4",
       "group": "optional:dev",
-      "latest": "0.16.5",
+      "latest": "0.16.6",
       "latest_satisfies": true,
       "name": "ruff",
       "python_3_14": true,
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all build, runtime, optional, development, and Node direct dependencies for 0.10.0; only the intentional h2hdb 0.29 compatibility-lane requirement changes, with no additional dependency upgrade needed.",
+    "note": "Reviewed all build, runtime, optional, development, and Node direct dependencies for 0.11.0. The h2hdb 0.30 compatibility lane was exercised against the local 0.30.0 source with all 58 Komga tests passing; the <0.31.0 upper bound intentionally isolates future breaking core lanes. Registry candidates outside existing bounds require no additional dependency change.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
