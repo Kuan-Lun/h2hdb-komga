@@ -140,7 +140,7 @@ timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.30.0,<0.31.0`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.31.0,<0.32.0`. Any
 configured database access mode is overridden to `read-only` by this CLI.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
 for a dedicated read-only database account and password.
