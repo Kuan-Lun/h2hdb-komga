@@ -19,6 +19,10 @@ from h2hdb import (
     CatalogRecentWindow,
     CatalogRevision,
     CatalogRevisionNotFoundError,
+    CatalogTagBundle,
+    CatalogTagCursor,
+    CatalogTagFilter,
+    CatalogTagPage,
     StorageObjectDescriptor,
     StorageObjectKey,
 )
@@ -121,6 +125,39 @@ class FakeCatalogReader:
     ) -> CatalogFacetPage:
         del facet, query, after, limit, revision
         raise AssertionError("facet feed must not be used by Komga sync")
+
+    def list_tag_values(
+        self,
+        *,
+        namespace: str,
+        after: CatalogTagCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogTagPage:
+        del namespace, after, limit, revision
+        raise AssertionError("tag directory must not be used by Komga sync")
+
+    def list_tag_values_with_publications(
+        self,
+        *,
+        namespace: str,
+        after: CatalogTagCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogTagBundle:
+        del namespace, after, limit, revision
+        raise AssertionError("tag bundle must not be used by Komga sync")
+
+    def list_tag_publications(
+        self,
+        *,
+        subject: CatalogTagFilter,
+        after: CatalogDiscoveryCursor | None = None,
+        limit: int = 50,
+        revision: CatalogRevision | int | None = None,
+    ) -> CatalogDiscoveryPage:
+        del subject, after, limit, revision
+        raise AssertionError("tag publications must not be used by Komga sync")
 
     def list_recent_publications(
         self,

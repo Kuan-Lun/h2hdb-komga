@@ -204,7 +204,7 @@ schema。
   只有本 coordinated CLI job 可以觸發 scan/analyze，不得由 Komga UI、其他
   API client 或 scheduler 執行未持鎖的 scan。
 - CLI 將 `CoreConfig.database.access_mode` 強制改為 read-only，再呼叫 top-level
-  `open_database()` 執行 epoch-3/schema-version-4 `READY` audit。不得 import core internals
+  `open_database()` 執行 epoch-3/schema-version-5 `READY` audit。不得 import core internals
   或呼叫 `migrate()`。outer process supervisor 必須維持 wall-clock hard
   deadline，即使 socket、database gate 或 thread 不合作也能終止 worker。
 

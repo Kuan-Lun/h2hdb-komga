@@ -1,4 +1,5 @@
 import multiprocessing
+import sqlite3
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any
@@ -82,7 +83,7 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
     )
     report = VNextDatabaseAdminFacade(core_config).initialize()
     assert report.epoch == 3
-    assert report.schema_version == 4
+    assert report.schema_version == 5
     assert report.state == "READY"
     before = database_path.read_bytes()
     komga_config = KomgaConfig(
@@ -119,6 +120,51 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
     assert synchronized
     assert database_path.read_bytes() == before
     assert core_config.database.access_mode is DatabaseAccessMode.read_write
+
+
+def test_worker_rejects_previous_schema_before_sync_without_mutating_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "prior-catalog.sqlite3"
+    core_config = CoreConfig(
+        database=DatabaseConfig(sql_type="sqlite", database=str(database_path))
+    )
+    VNextDatabaseAdminFacade(core_config).initialize()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("UPDATE h2hdb_schema_epoch SET schema_version = 4")
+    before = database_path.read_bytes()
+    komga_config = KomgaConfig(
+        base_url="https://komga.invalid",
+        api_username="user",
+        api_password="password",
+        library_id="library-1",
+        coordination_root=tmp_path / "coordination",
+        trigger_scan=False,
+    )
+    synchronized = False
+
+    def sync(
+        selected_config: KomgaConfig,
+        reader: CatalogReader,
+        *,
+        timeout_seconds: float,
+    ) -> None:
+        nonlocal synchronized
+        del selected_config, reader, timeout_seconds
+        synchronized = True
+
+    monkeypatch.setattr(
+        config_loader.KomgaConfig, "from_file", lambda path: komga_config
+    )
+    monkeypatch.setattr(cli, "load_h2hdb_config", lambda path: core_config)
+    monkeypatch.setattr(cli, "sync_komga_library", sync)
+
+    with pytest.raises(RuntimeError, match="expected epoch/version"):
+        cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
+
+    assert not synchronized
+    assert database_path.read_bytes() == before
 
 
 def test_cli_runs_bootstrap_inside_hard_deadline_worker(monkeypatch: Any) -> None:
