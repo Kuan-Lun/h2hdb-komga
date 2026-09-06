@@ -29,7 +29,7 @@ Do not mount the enclosing `current` directory: it also contains the separate
 Komga to scan.
 
 The H2HDB database is always opened in read-only mode. Startup performs the
-exact epoch-3/schema-version-2 `READY` audit through H2HDB's public database
+exact epoch-3/schema-version-4 `READY` audit through H2HDB's public database
 opener but never initializes or migrates schema; schema ownership stays with
 H2HDB core. Schema version 1 is not accepted by this release and has no
 compatibility path: rebuild it through the owning core/ingest deployment.
@@ -140,8 +140,10 @@ timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.31.0,<0.32.0`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.33.0,<0.34.0`. Any
 configured database access mode is overridden to `read-only` by this CLI.
+Older core schema versions must be rebuilt by H2HDB and ingest into a new empty
+database before syncing; this consumer does not migrate the database.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
 for a dedicated read-only database account and password.
 
