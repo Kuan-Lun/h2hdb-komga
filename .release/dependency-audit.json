@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-06T07:42:43+00:00",
-  "manifest_sha256": "8d7c78c4b6da386129819e7e9ba404a4ec10f1c523a5bac1c39ab947c706e667",
+  "checked_at": "2026-09-06T16:17:27+00:00",
+  "manifest_sha256": "c1bd509d0d733392df168952618d055d1e3fb85fbd7258dfa16f437230559331",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.13.0",
+  "project_version": "0.14.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,10 +21,10 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.33.0,<0.34.0",
+      "declared": "h2hdb>=0.35.0,<0.36.0",
       "group": "runtime",
-      "latest": "0.32.1",
-      "latest_satisfies": false,
+      "latest": "0.35.0",
+      "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct Python build, runtime, optional-development and Node dependency for 0.13.0. Registry candidates outside declared bounds were included. All non-core latest releases remain identical to the previously reviewed receipt and installed environment; no additional dependency changes are needed. The core bound >=0.33.0,<0.34.0 deliberately replaces older compatibility lanes and requires a freshly rebuilt epoch-3/schema-version-4 database. Registry h2hdb 0.32.1 is older than this new lower bound; reviewed the local core 0.33 schema/API changes and validated the explicit unpublished wheel with SHA256 62456066515988841377da679bd597161cce27b1bb0426d500635dcab290d677. All 71 installed core package files match that wheel, uv pip check passes, and 4 CLI tests, including real schema-4 SQLite read-only bootstrap and unchanged database bytes passed against it. Consumers continue to use only public core facades and immutable values. This dependency review does not replace the required full merge gate and does not claim deep or live-MariaDB consumer coverage.",
+    "note": "Reviewed the coordinated h2hdb 0.35 compatibility lane and schema 5 requirement. Komga keeps using the public canonical artifact lookup; the fake now implements all three generic tag methods and fails if sync invokes them. The real SQLite startup test confirms schema 5 admission, and the schema 4 regression confirms rejection before sync without modifying the database. Targeted CLI and metadata tests passed (12 tests), and the complete fast gate passed. All other registry latest candidates match the prior reviewed audit and installed versions; no dependency upgrade is pending. Live Komga operations were not run; the merge gate separately validates the complete offline suite and installed wheel.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
