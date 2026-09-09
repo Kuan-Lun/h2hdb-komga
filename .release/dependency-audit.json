@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-06T16:17:27+00:00",
-  "manifest_sha256": "c1bd509d0d733392df168952618d055d1e3fb85fbd7258dfa16f437230559331",
+  "checked_at": "2026-09-09T01:46:29+00:00",
+  "manifest_sha256": "4f3596bab48d74c27d677fc9aff1f1e5f138679337e2a92408d4152fa0ba2268",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.14.0",
+  "project_version": "0.15.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,9 +21,9 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.35.0,<0.36.0",
+      "declared": "h2hdb>=0.36.0,<0.37.0",
       "group": "runtime",
-      "latest": "0.35.0",
+      "latest": "0.36.0",
       "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed the coordinated h2hdb 0.35 compatibility lane and schema 5 requirement. Komga keeps using the public canonical artifact lookup; the fake now implements all three generic tag methods and fails if sync invokes them. The real SQLite startup test confirms schema 5 admission, and the schema 4 regression confirms rejection before sync without modifying the database. Targeted CLI and metadata tests passed (12 tests), and the complete fast gate passed. All other registry latest candidates match the prior reviewed audit and installed versions; no dependency upgrade is pending. Live Komga operations were not run; the merge gate separately validates the complete offline suite and installed wheel.",
+    "note": "Reviewed every current build/runtime/dev/Node registry candidate, including versions outside declared bounds; all latest candidates satisfy the manifest and accept Python 3.14. h2hdb 0.36.0 is required for epoch 3/schema 6; real read-only SQLite bootstrap and 16 targeted consumer/dependency tests passed on its published wheel, with the older 0.35 lane removed. Requests 2.34.2 remains latest and its Mapping header typing is compatible (https://github.com/psf/requests/releases/tag/v2.34.2). Reviewed build 1.6.0 constraints-hash fix and deprecation rollback (https://github.com/pypa/build/releases/tag/1.6.0), Ruff 0.16.5/0.16.6 bug fixes without enabling preview rules (https://github.com/astral-sh/ruff/releases/tag/0.16.6), packaging 26.3 requirement/marker fixes (https://github.com/pypa/packaging/blob/main/CHANGELOG.rst), and markdownlint-cli2 0.23.2 dependency updates and Node >=22 requirement (https://github.com/DavidAnson/markdownlint-cli2/blob/main/CHANGELOG.md). Repository-local Python 3.14.1 uses these latest tools; fast gate passed without compatibility shims or rule relaxation. Full merge gate and installed-wheel requirement/origin/SQLite checks are separate release evidence.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
