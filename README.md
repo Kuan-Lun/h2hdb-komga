@@ -29,9 +29,9 @@ Do not mount the enclosing `current` directory: it also contains the separate
 Komga to scan.
 
 The H2HDB database is always opened in read-only mode. Startup performs the
-exact epoch-3/schema-version-5 `READY` audit through H2HDB's public database
+exact epoch-3/schema-version-6 `READY` audit through H2HDB's public database
 opener but never initializes or migrates schema; schema ownership stays with
-H2HDB core. Schema versions 1 through 4 are not accepted by this release and
+H2HDB core. Schema versions 1 through 5 are not accepted by this release and
 have no compatibility path: rebuild through the owning core/ingest deployment.
 
 ---
@@ -140,7 +140,7 @@ timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.35.0,<0.36.0`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.36.0,<0.37.0`. Any
 configured database access mode is overridden to `read-only` by this CLI.
 Older core schema versions must be rebuilt by H2HDB and ingest into a new empty
 database before syncing; this consumer does not migrate the database.
@@ -160,6 +160,10 @@ Rebuild the repository-local environment and run its canonical gates with:
 The rebuild script installs this project in editable mode and resolves the
 published compatible H2HDB core. It uses `uv` only for `.venv` and pip-style
 installation, never reads `uv.lock`, and never assumes an adjacent checkout.
+The full gate checks the built wheel’s declared runtime requirements against
+the installed dependency versions, verifies wheel import origins, and opens a
+fresh SQLite schema through the real read-only core facade. Source checkouts and
+editable core installs are rejected by this installed-wheel check.
 
 ---
 

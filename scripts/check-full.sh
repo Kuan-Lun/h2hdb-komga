@@ -41,4 +41,5 @@ printf '%s\n' "$development_site_statement" > \
     "$smoke_python" -I -c \
         'import h2hdb_komga, pathlib, sys; assert pathlib.Path(h2hdb_komga.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve())'
     "$smoke_python" -I -m h2hdb_komga --help >/dev/null
+    "$smoke_python" -I "$repository_root/scripts/smoke-installed-dependencies.py"
 )

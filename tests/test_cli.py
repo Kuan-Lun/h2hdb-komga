@@ -83,7 +83,7 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
     )
     report = VNextDatabaseAdminFacade(core_config).initialize()
     assert report.epoch == 3
-    assert report.schema_version == 5
+    assert report.schema_version == 6
     assert report.state == "READY"
     before = database_path.read_bytes()
     komga_config = KomgaConfig(
@@ -132,7 +132,7 @@ def test_worker_rejects_previous_schema_before_sync_without_mutating_database(
     )
     VNextDatabaseAdminFacade(core_config).initialize()
     with sqlite3.connect(database_path) as connection:
-        connection.execute("UPDATE h2hdb_schema_epoch SET schema_version = 4")
+        connection.execute("UPDATE h2hdb_schema_epoch SET schema_version = 5")
     before = database_path.read_bytes()
     komga_config = KomgaConfig(
         base_url="https://komga.invalid",
