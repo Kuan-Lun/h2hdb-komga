@@ -140,8 +140,12 @@ timeout indefinitely.
 
 #### h2hdb-config.json
 
-Use an H2HDB core configuration compatible with `h2hdb>=0.36.0,<0.37.0`. Any
+Use an H2HDB core configuration compatible with `h2hdb>=0.36.0,<0.38.0`. Any
 configured database access mode is overridden to `read-only` by this CLI.
+Core 0.36 and 0.37 share the catalog reader contract and epoch-3/schema-version-6
+schema used here. Core 0.37 changes the ingest source adapter contract, which
+this read-only consumer does not implement; upgrading between these two core
+lanes requires no database or CBZ conversion.
 Older core schema versions must be rebuilt by H2HDB and ingest into a new empty
 database before syncing; this consumer does not migrate the database.
 The core loader supports the same exact `${ENV_NAME}` placeholders, including
