@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-11T08:57:58+00:00",
-  "manifest_sha256": "d9c46b9f1174e97e0d255b94c1a2bd423ef2eb174cdf6426c370075d4ba00916",
+  "checked_at": "2026-09-14T01:42:49+00:00",
+  "manifest_sha256": "454587bbb9ac30c83e7c49d3c684b63622ae14bc362e1524328e8d12ceae481f",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.15.1",
+  "project_version": "0.15.2",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,9 +21,9 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.36.0,<0.38.0",
+      "declared": "h2hdb>=0.36.0,<0.39.0",
       "group": "runtime",
-      "latest": "0.37.0",
+      "latest": "0.37.3",
       "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every build/runtime/dev/Node registry candidate, including versions outside declared bounds; all latest candidates satisfy the manifest and accept Python 3.14. Core 0.37.0 changes the ingest source adapter contract only for this consumer: the CatalogReader, publication/domain values, public read-only database opener, config, and epoch-3/schema-version-6 schema used by Komga are unchanged from 0.36.0. The supported range is expanded to >=0.36.0,<0.38.0, retaining the verified lower lane without a shim. Complete offline consumer suite: 83 passed on the published h2hdb 0.36.0 wheel and 83 passed on the published 0.37.0 wheel; real read-only SQLite initialization/open smoke passed on both. Reviewed build 1.6.1 Windows symlink-detection regression fix (https://github.com/pypa/build/blob/1.6.1/CHANGELOG.rst) and Ruff 0.16.7 lint/format fixes and preview additions (https://github.com/astral-sh/ruff/releases/tag/0.16.7); installed both latest tools and passed the fast gate without enabling preview or relaxing checks. All other direct candidates match the previous reviewed audit. Exact merge gate, final wheel requirement/origin/SQLite checks, and whole deployment cohort resolution are separate evidence.",
+    "note": "Reviewed all 9 Python and 1 Node direct requirement entries, including latest registry candidates beyond declared bounds. The only changed registry candidate since the previous reviewed receipt is h2hdb 0.37.3; the remaining external candidates and their release-note reviews are unchanged and all current candidates satisfy their declared bounds and support Python 3.14. Compared core 0.37.0 through 0.37.3: public domain values and catalog/queue facades are unchanged. The 0.38.0 candidate changes administration provisioning results and ingest internals, while the Komga public read-only catalog contract and schema epoch 3/version 6 are unchanged. Verified local core 0.38.0 wheel SHA-256 5266df990ffbe753817c6f4a7ade0ab5aea31b186bd8fedda30f05cba969d232 in an independently rebuilt environment; consumer editable and core wheel origins were checked. Widened the core requirement to >=0.36.0,<0.39.0, retaining previously verified catalog-compatible lanes without a shim or data migration. Requirement boundary tests now accept 0.38 and exclude unreviewed 0.39. Full offline check-full.sh passed Ruff, formatter, strict mypy, Markdown, all 84 tests, sdist-to-wheel build, CLI help, installed-runtime-requirements/wheel-origin checks and real read-only SQLite smoke against core 0.38.0. All latest external dependencies were installed through the complete resolver; no live Komga service was exercised. The final merge gate and complete deployment cohort evidence are reported separately.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
