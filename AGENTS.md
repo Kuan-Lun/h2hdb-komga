@@ -223,9 +223,13 @@ schema。
 - Komga library 的 **Scan on startup** 與 **Scan interval** 都必須 disabled；
   只有本 coordinated CLI job 可以觸發 scan/analyze，不得由 Komga UI、其他
   API client 或 scheduler 執行未持鎖的 scan。
-- CLI 將 `CoreConfig.database.access_mode` 強制改為 read-only，再呼叫 top-level
-  `open_database()` 執行 epoch-3/schema-version-6 `READY` audit。不得 import core internals
-  或呼叫 `migrate()`。outer process supervisor 必須維持 wall-clock hard
+- CLI 將 `CoreConfig.database.access_mode` 強制改為 read-only，再呼叫公開
+  `VNextDatabaseAdminFacade.check_readiness()` 驗證相容的 epoch/version/manifest
+  READY marker，finally 關閉 admin，再建立 `VNextCatalogFacade`。這是快速接納，
+  不是完整資料稽核；完整稽核由 ingest 排程管理或明確執行 core `check`。不得 import
+  core internals、初始化或 migrate schema，不得省略 sync publication fencing。
+  自建 catalog facade 必須在 sync 成功或失敗後 finally 關閉。
+  Outer process supervisor 必須維持 wall-clock hard
   deadline，即使 socket、database gate 或 thread 不合作也能終止 worker。
 
 ### Verification

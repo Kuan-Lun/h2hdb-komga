@@ -68,8 +68,8 @@ def check_sqlite_reader() -> None:
         CoreConfig,
         DatabaseAccessMode,
         DatabaseConfig,
+        VNextCatalogFacade,
         VNextDatabaseAdminFacade,
-        open_database,
     )
 
     with TemporaryDirectory(prefix="h2hdb-komga-wheel-") as temporary:
@@ -78,8 +78,9 @@ def check_sqlite_reader() -> None:
                 sql_type="sqlite", database=str(Path(temporary) / "catalog.sqlite3")
             )
         )
-        report = VNextDatabaseAdminFacade(config).initialize()
-        assert (report.epoch, report.schema_version, report.state) == (3, 6, "READY")
+        with closing(VNextDatabaseAdminFacade(config)) as admin:
+            report = admin.initialize()
+        assert (report.epoch, report.schema_version, report.state) == (3, 7, "READY")
         read_only = config.model_copy(
             update={
                 "database": config.database.model_copy(
@@ -87,7 +88,9 @@ def check_sqlite_reader() -> None:
                 )
             }
         )
-        with closing(open_database(read_only)) as reader:
+        with closing(VNextDatabaseAdminFacade(read_only)) as admin:
+            admin.check_readiness()
+        with closing(VNextCatalogFacade(read_only)) as reader:
             try:
                 reader.get_catalog_revision()
             except CatalogRevisionNotFoundError:

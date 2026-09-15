@@ -7,7 +7,8 @@ from typing import Protocol, cast
 from h2hdb import (
     CoreConfig,
     DatabaseAccessMode,
-    open_database,
+    VNextCatalogFacade,
+    VNextDatabaseAdminFacade,
 )
 from h2hdb import (
     load_config as load_h2hdb_config,
@@ -71,12 +72,21 @@ def _sync_from_config_paths(
     _configure_logging()
     komga_config = KomgaConfig.from_file(komga_config_path)
     core_config = _read_only_core_config(load_h2hdb_config(h2hdb_config_path))
-    catalog_reader = open_database(core_config)
-    sync_komga_library(
-        komga_config,
-        catalog_reader,
-        timeout_seconds=timeout_seconds,
-    )
+    admin = VNextDatabaseAdminFacade(core_config)
+    try:
+        admin.check_readiness()
+    finally:
+        admin.close()
+    catalog_reader = VNextCatalogFacade(core_config)
+    try:
+        logging.info("Database readiness confirmed; full audit was not performed")
+        sync_komga_library(
+            komga_config,
+            catalog_reader,
+            timeout_seconds=timeout_seconds,
+        )
+    finally:
+        catalog_reader.close()
 
 
 def _sync_worker(
