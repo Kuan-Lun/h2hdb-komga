@@ -51,6 +51,8 @@
 - fetch、pull、push、remote branch、tag、release、publish、deploy 與任何
   force 操作仍須逐次明確授權。
 - 不得使用 `--no-verify`。
+- primary 不得 rebase；pull 只允許 fast-forward，保留既有 merge commits。
+  task branch 整合仍使用 `--no-ff`，task branch 可正常 rebase。
 
 ## 提交格式
 
