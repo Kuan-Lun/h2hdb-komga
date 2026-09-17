@@ -35,16 +35,22 @@ def test_version_gate_enforces_three_part_base_and_candidate(
     audits: list[str] = []
 
     def git(*arguments: str) -> str:
-        if arguments[0] == "rev-parse":
-            return "task-commit"
-        if arguments == ("write-tree",):
-            return "candidate-tree"
-        if arguments[0] == "diff":
-            return (
-                "src/runtime.py\npyproject.toml" if version_changed else "tests/test.py"
-            )
-        assert arguments[0] == "log"
-        return "fix: update runtime" if version_changed else "test: add coverage"
+        match arguments:
+            case ("rev-parse", *_):
+                return "task-commit"
+            case ("write-tree",):
+                return "candidate-tree"
+            case ("diff", *_):
+                return (
+                    "src/runtime.py\npyproject.toml"
+                    if version_changed
+                    else "tests/test.py"
+                )
+            case _:
+                assert arguments[0] == "log"
+                return (
+                    "fix: update runtime" if version_changed else "test: add coverage"
+                )
 
     def document(tree: str) -> dict[str, object]:
         return {
