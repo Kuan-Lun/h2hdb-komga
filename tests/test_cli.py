@@ -105,7 +105,7 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
     with closing(VNextDatabaseAdminFacade(core_config)) as admin:
         report = admin.initialize()
     assert report.epoch == 3
-    assert report.schema_version == 7
+    assert report.schema_version == 8
     assert report.state == "READY"
 
     def forbid_full_audit(_admin: VNextDatabaseAdminFacade) -> None:
@@ -149,9 +149,22 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
     assert core_config.database.access_mode is DatabaseAccessMode.read_write
 
 
-def test_worker_rejects_previous_schema_before_sync_without_mutating_database(
+@pytest.mark.parametrize(
+    ("schema_version", "state", "message"),
+    [
+        (5, "READY", "expected epoch/version"),
+        (6, "READY", "expected epoch/version"),
+        (7, "READY", "expected epoch/version"),
+        (9, "READY", "expected epoch/version"),
+        (8, "BUILDING", "not READY"),
+    ],
+)
+def test_worker_rejects_incompatible_schema_before_sync_without_mutating_database(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    schema_version: int,
+    state: str,
+    message: str,
 ) -> None:
     database_path = tmp_path / "prior-catalog.sqlite3"
     core_config = CoreConfig(
@@ -160,7 +173,11 @@ def test_worker_rejects_previous_schema_before_sync_without_mutating_database(
     with closing(VNextDatabaseAdminFacade(core_config)) as admin:
         admin.initialize()
     with sqlite3.connect(database_path) as connection:
-        connection.execute("UPDATE h2hdb_schema_epoch SET schema_version = 5")
+        connection.execute(
+            "UPDATE h2hdb_schema_epoch SET schema_version = ?, state = ?, "
+            "ready_at = CASE WHEN ? = 'BUILDING' THEN NULL ELSE ready_at END",
+            (schema_version, state, state),
+        )
     before = database_path.read_bytes()
     komga_config = KomgaConfig(
         base_url="https://komga.invalid",
@@ -188,7 +205,7 @@ def test_worker_rejects_previous_schema_before_sync_without_mutating_database(
     monkeypatch.setattr(cli, "load_h2hdb_config", lambda path: core_config)
     monkeypatch.setattr(cli, "sync_komga_library", sync)
 
-    with pytest.raises(RuntimeError, match="expected epoch/version"):
+    with pytest.raises(RuntimeError, match=message):
         cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
 
     assert not synchronized
