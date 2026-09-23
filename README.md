@@ -26,8 +26,11 @@
 ## 準備書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.39.0,<0.40.0`，對應 epoch 3／schema version 7。
+此版本使用 `h2hdb>=0.41.1,<0.42.0`，對應 epoch 3／schema version 8。
 H2HDB 資料庫和 ingest 發佈的 CBZ 必須屬於同一個書庫。
+舊 schema 7 必須先停止所有 consumers，使用 Core 的一次性離線工具升到 schema 8；
+既有資料庫內容、CBZ 與 Komga 閱讀進度可保留。本工具不會執行資料庫轉換，
+也不接受尚未完成轉換的 `BUILDING` 狀態。
 
 1. 先由 H2HDB 與 ingest 完成資料庫初始化和書庫發佈。
 2. 在 Komga 建立專用書庫，讓它只讀取 ingest 的 `current/acquisitions` 目錄，

@@ -1,29 +1,29 @@
 {
-  "checked_at": "2026-09-15T12:13:45+00:00",
-  "manifest_sha256": "52652d18ae74c179c796e15d97a5c32e985846a0a949fc48968154a03d92593b",
+  "checked_at": "2026-09-23T12:48:32+00:00",
+  "manifest_sha256": "0da8255fbdf49316883c24b871eef828ea8326dbf63ed4a6ec406ce413dd04e1",
   "node": [
     {
       "declared": ">=0.23.2",
-      "latest": "0.23.2",
+      "latest": "0.23.3",
       "latest_satisfies": true,
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.16.0",
+  "project_version": "0.17.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
       "group": "build",
-      "latest": "1.32.0",
+      "latest": "1.32.4",
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.39.0,<0.40.0",
+      "declared": "h2hdb>=0.41.1,<0.42.0",
       "group": "runtime",
-      "latest": "0.38.3",
+      "latest": "0.41.0",
       "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
@@ -50,7 +50,7 @@
     {
       "declared": "hatchling>=1.32.0",
       "group": "optional:dev",
-      "latest": "1.32.0",
+      "latest": "1.32.4",
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
@@ -59,7 +59,7 @@
     {
       "declared": "ruff>=0.16.4",
       "group": "optional:dev",
-      "latest": "0.16.7",
+      "latest": "0.16.8",
       "latest_satisfies": true,
       "name": "ruff",
       "python_3_14": true,
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Core 0.39.0 introduces epoch-3/schema-7 durable ingest audit scheduling. Readers now use read-only READY marker admission with explicit admin and catalog ownership; complete database checks remain in ingest scheduling and manual core check. Earlier core lanes are intentionally excluded; exact schema 6 uses the core offline one-time converter without a runtime fallback or CBZ rebuild. Tested actual core wheel SHA-256 b3756eb80768c60ae44290b92ad8deefde15a4311397f31eefb300e3e543fb0c installed by the canonical complete resolver, without source PYTHONPATH or dependency bypass. Registry core may remain below the new floor because 0.39.0 is the coordinated local release; the tested wheel is the required candidate. Reviewed all 9 Python and 1 Node entries, including candidates beyond upper bounds. Compared the preceding receipt: external candidates and their reviewed release notes are unchanged. check-full.sh passed Ruff, formatter, strict mypy, Markdown, 106 tests in 12.41s, sdist/wheel build, isolated CLI help, installed dependency/origin checks and real read-only SQLite readiness smoke. Startup check() is forbidden by tests; admission, catalog-construction and synchronization failures close owned facades. The subsequent exact final gate covers the final release version; the prior gate does not claim that receipt. No live Komga or MariaDB is claimed.",
+    "note": "Reviewed all 9 Python entries across build/runtime/dev and 1 Node entry, including candidates beyond upper bounds. Core input is the explicitly supplied non-editable 0.41.1 wheel SHA-256 ba038f770b8910a6211565d5c1b30cb5cd78e5d324e7893e568d99dab33cc9fd; registry 0.41.0 is intentionally below the minimum because this cohort requires the verified interrupted-cleanup audit fix. Core public CatalogReader and read-only check_readiness signatures match; no consumer SQL, migration, fallback, or runtime adapter change was needed. Read-only schema-8 admission, no implicit full audit, incompatible schemas 5/6/7/9 and schema-8 BUILDING rejection, facade lifetime, canonical lookup, metadata mapping, revision fencing, coordination and hard deadlines are covered. Preliminary full suite 113 passed; expanded admission tests 12 passed. A separate real public ingest-to-catalog experiment used installed Core 0.41.1 and the unchanged Komga sync with a fake gateway: nonempty publication lookup, metadata PATCH verification, scan/analyze fencing, stale revision rejection, and unchanged SQLite bytes during reading passed. Reviewed official Hatchling 1.32.3/1.32.4 notes https://github.com/pypa/hatch/releases/tag/hatchling-v1.32.4 (plugin typing regression revert and version whitespace fix); this project has no custom build hooks and sdist-to-wheel build passed with 1.32.4. Reviewed Ruff 0.16.8 notes https://github.com/astral-sh/ruff/releases/tag/0.16.8 (bug fixes; existing configured rules unchanged) and lint/format passed. Reviewed markdownlint-cli2 0.23.3 official installed CHANGELOG and tag https://github.com/DavidAnson/markdownlint-cli2/releases/tag/v0.23.3; repository Markdown passed on 0.23.3. Other external latest candidates equal the prior reviewed receipt and satisfy current bounds. requests upper bound excludes unverified major 3; Core upper bound excludes unverified compatibility lane 0.42. Canonical resolver installed all candidates without --no-deps. Final merge gate separately validates the exact versioned candidate. No live Komga, production database, or live MariaDB test is claimed.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
