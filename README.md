@@ -26,9 +26,10 @@
 ## 準備書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.41.1,<0.42.0`，對應 epoch 3／schema version 8。
+此版本使用 `h2hdb>=0.41.1,<0.43.0`，對應 epoch 3／schema version 8。
 H2HDB 資料庫和 ingest 發佈的 CBZ 必須屬於同一個書庫。
-舊 schema 7 必須先停止所有 consumers，使用 Core 的一次性離線工具升到 schema 8；
+舊 schema 7 必須先停止所有 consumers，使用 Core 0.41.2 歷史 checkout 的
+一次性離線工具升到 schema 8；Core 0.42 已移除這套工具。
 既有資料庫內容、CBZ 與 Komga 閱讀進度可保留。本工具不會執行資料庫轉換，
 也不接受尚未完成轉換的 `BUILDING` 狀態。
 
@@ -154,9 +155,9 @@ MariaDB 範例：
 即使設定為可寫入，本工具仍會以唯讀模式開啟 H2HDB。它會修改 Komga，
 不會修改 H2HDB 資料庫或漫畫檔案。
 
-既有 schema 6 資料庫需先由管理者依
-[H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
-執行離線一次性 `upgrade-audit-schema.py` 轉換，保留 catalog 與 CBZ。
+既有 schema 6 資料庫需先使用 Core 0.40.0 歷史工具轉至 schema 7，
+再使用 Core 0.41.2 歷史工具轉至 schema 8，保留 catalog 與 CBZ。
+已完成轉換的 schema 8 不需再遷移。
 其他舊版本需由 H2HDB／ingest 準備新的相容資料庫；本工具不會自動升級。
 
 ## 執行同步
