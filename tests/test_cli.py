@@ -105,7 +105,7 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
     with closing(VNextDatabaseAdminFacade(core_config)) as admin:
         report = admin.initialize()
     assert report.epoch == 3
-    assert report.schema_version == 8
+    assert report.schema_version == 9
     assert report.state == "READY"
 
     def forbid_full_audit(_admin: VNextDatabaseAdminFacade) -> None:
@@ -155,8 +155,9 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
         (5, "READY", "expected epoch/version"),
         (6, "READY", "expected epoch/version"),
         (7, "READY", "expected epoch/version"),
-        (9, "READY", "expected epoch/version"),
-        (8, "BUILDING", "not READY"),
+        (8, "READY", "expected epoch/version"),
+        (10, "READY", "expected epoch/version"),
+        (9, "BUILDING", "not READY"),
     ],
 )
 def test_worker_rejects_incompatible_schema_before_sync_without_mutating_database(
