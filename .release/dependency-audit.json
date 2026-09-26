@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-25T08:44:26+00:00",
-  "manifest_sha256": "928d6afcbfbb55e750574f035a4af390c106b49dc25750d367ebe311836e9639",
+  "checked_at": "2026-09-26T18:14:46+00:00",
+  "manifest_sha256": "115befec1071e9ea593fb60f631762a15cd0db52d6a816f9bc3edf537b63a689",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.17.1",
+  "project_version": "0.18.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,10 +21,10 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.41.1,<0.43.0",
+      "declared": "h2hdb>=0.43.0,<0.44.0",
       "group": "runtime",
-      "latest": "0.42.0",
-      "latest_satisfies": true,
+      "latest": "0.42.2",
+      "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed all 9 Python entries across build/runtime/dev and 1 Node entry, including candidates beyond upper bounds. Core input is the explicitly supplied non-editable 0.42.0 wheel SHA-256 c7e3c56db5174ace5b15d9fdb25c3788e24938affbcbeffc6d3e3d6908358a9d, byte-verified against Core f8fdf37. Core 0.41.2 commit 64683c5 to f8fdf37 has no changes to public exports, config, domain, ports, vnext_facade or generated schema; the 0.42 breaking change removes the completed private offline conversion writer/tooling, which Komga does not use. Existing lower bound 0.41.1 remains supported; upper bound now excludes unverified lane 0.43. Existing requests upper bound excludes unverified major 3. Updated manifest boundary tests accept 0.42.0/0.42.1 and reject 0.43.0; installed dependency and read-only CLI tests passed (29 tests). A real nonempty public ingest-to-catalog experiment with the actual Core 0.42.0 wheel passed canonical lookup rejection, unchanged Komga synchronization through a fake gateway, metadata PATCH verification, scan/analyze coordination, stale revision rejection and unchanged SQLite bytes during reads. Reviewed official Ruff 0.16.9 release notes https://github.com/astral-sh/ruff/releases/tag/0.16.9: keyword-call false-positive fixes for B009/B010/B043, lazy import annotations and preview fixes do not require policy changes; actual Ruff 0.16.9 lint/format and strict mypy passed. Other external candidates match the preceding reviewed receipt, whose official release-note review is retained in Git history. Installed latest candidates include Hatchling 1.32.4 and markdownlint-cli2 0.23.3; Markdown validation passed. All 29 installed Python packages passed dependency consistency. The exact final candidate full gate and installed-wheel smoke are reported separately; no live Komga, production database, live MariaDB or NAS validation is claimed.",
+    "note": "Reviewed every direct build, runtime, dev and Node candidate, including outside declared upper bounds. This breaking compatibility lane requires Core >=0.43.0,<0.44.0 and schema 9; registry Core 0.42.2 is deliberately excluded because it retains schema 8. The explicitly supplied non-editable working Core 0.43.0 wheel SHA256 00f8f4a7f7f1ef03a114a5ff35d3783b946f9225cb376647f8e251ddd068e665 was installed and verified. Schema 9 replaces global GID upload time with immutable observation and publication occurrence times; the public CatalogPublication fields and reader facade contract remain unchanged. Komga consumes published_at through its existing neutral translation and public read-only readiness/catalog facades; it has no schema internals or compatibility shim. Updated real SQLite readiness tests accept exact schema 9, reject previous/future/BUILDING markers without mutation, and prevent startup full audits. Updated declared/installed dependency and installed-wheel SQLite smoke boundaries. All 119 offline tests and the fast gate passed with this candidate, including metadata mapping, revision fencing and read-only admission. External registry candidates and installed versions are unchanged from the reviewed 2026-09-25 receipt: Hatchling 1.32.4, requests 2.34.2, build 1.6.1, Ruff 0.16.9, mypy 2.3.1, packaging 26.3, pytest 9.1.1 and markdownlint-cli2 0.23.3; their prior official release-note review remains in Git history. Core active runtime requirements passed installed dependency consistency. The final Core wheel, exact final consumer gate and installed-wheel smoke are separate required validation, not claimed by this candidate receipt. No live Komga, account, NAS or production database was used.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
