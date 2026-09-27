@@ -39,13 +39,13 @@ def test_installed_metadata_accepts_actual_core_and_ignores_inactive_markers(
 ) -> None:
     package = _metadata(
         tmp_path,
-        ("h2hdb>=0.43.0,<0.44.0", "missing-inactive-package; python_version < '3.14'"),
+        ("h2hdb>=0.43.0,<0.45.0", "missing-inactive-package; python_version < '3.14'"),
     )
     assert _checker()(package) == {"h2hdb": version("h2hdb")}
 
 
 @pytest.mark.parametrize(
-    "requirement", ["h2hdb>=0.41.1,<0.43.0", "h2hdb>=0.44.0,<0.45.0"]
+    "requirement", ["h2hdb>=0.41.1,<0.43.0", "h2hdb>=0.45.0,<0.46.0"]
 )
 def test_installed_metadata_rejects_wrong_core_lane(
     tmp_path: Path, requirement: str
@@ -77,7 +77,9 @@ def test_installed_metadata_rejects_missing_dependency(tmp_path: Path) -> None:
         ("0.42.2", False),
         ("0.43.0", True),
         ("0.43.1", True),
-        ("0.44.0", False),
+        ("0.44.0", True),
+        ("0.44.1", True),
+        ("0.45.0", False),
     ],
 )
 def test_manifest_supports_verified_catalog_contract_lanes(
