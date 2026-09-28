@@ -26,9 +26,10 @@
 ## 準備書庫
 
 需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.43.0,<0.45.0`，對應 epoch 3／schema version 9。
-Core 0.43 與 0.44 使用相同的 schema 9 與公開 catalog 介面；0.44 移除的是
-一次性離線升級工具，本 consumer 可使用這兩個 Core 版本系列。
+此版本使用 `h2hdb>=0.43.0,<0.46.0`，對應 epoch 3／schema version 9。
+Core 0.43、0.44 與 0.45 使用相同的 schema 9 與公開 catalog 介面。
+Core 0.45 的內容分析與診斷更新不改變本工具使用的讀取契約；未驗證的
+Core 0.46 版本系列仍不納入支援範圍。
 H2HDB 資料庫和 ingest 發佈的 CBZ 必須屬於同一個書庫。
 已完成 schema 9 轉換的資料庫不需再次轉換、清庫或重建 CBZ。
 尚未轉換的 exact schema 8 必須先停止所有 consumers，使用

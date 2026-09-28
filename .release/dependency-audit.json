@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-09-27T06:19:48+00:00",
-  "manifest_sha256": "71cc08826c967dafc9e411cd8bb4792926ac24f6052b58de29f35224c1788848",
+  "checked_at": "2026-09-28T12:04:02+00:00",
+  "manifest_sha256": "384a2436c6c6df46062ceaa07c8c97f2d899fb1d458bb2e59df0c2d89bccca4d",
   "node": [
     {
       "declared": ">=0.23.2",
@@ -9,7 +9,7 @@
       "name": "markdownlint-cli2"
     }
   ],
-  "project_version": "0.18.1",
+  "project_version": "0.18.2",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -21,10 +21,10 @@
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.43.0,<0.45.0",
+      "declared": "h2hdb>=0.43.0,<0.46.0",
       "group": "runtime",
-      "latest": "0.42.2",
-      "latest_satisfies": false,
+      "latest": "0.44.0",
+      "latest_satisfies": true,
       "name": "h2hdb",
       "python_3_14": true,
       "url": "https://pypi.org/project/h2hdb/"
@@ -94,7 +94,7 @@
     }
   ],
   "review": {
-    "note": "Reviewed every direct build, runtime, development and Node registry candidate, including outside declared bounds, against the prior 0.18.0 receipt. Every non-Core latest version, Python 3.14 support result and declaration is unchanged; the previous official release-note reviews retained in Git history remain applicable. Registry Core remains 0.42.2 and is deliberately excluded because it uses schema 8. This compatible consumer patch expands Core to >=0.43.0,<0.45.0, preserving the verified 0.43 lane and admitting 0.44 while rejecting schema-8 releases and the unreviewed 0.45 lane. Core 0.44.0 removes the public one-time offline upgrade tools, a breaking CLI retirement in Core; it keeps schema 9 and consumer public runtime contracts unchanged. Independently compared all 95 h2hdb package files in Core 0.44.0 wheel SHA256 8c78e6deb328421e5bb0e3c92fe1357f127a899f548267b775d4c006a896db0d with tested Core 0.43.0 v5 wheel SHA256 041bb67265cd12d6d2762841ec55c4bb996b3f697d2512bc5ddd8e47b947b966: file sets and bytes are identical. Installed the explicit local 0.44 wheel and verified every installed package file; this is not a registry installation claim. 35 targeted cases passed on Core 0.44.0: installed dependency checks, accepted/rejected declared Core versions, actual schema-9 SQLite read-only startup, old/unfinished schema rejection and public metadata mapping. All 21 updated dependency-boundary cases also passed on the retained Core 0.43.0 v5 environment. Normal pre-commit fast checks passed for the functional change. README points any still-unconverted database to the separate historical Core 0.43.0 checkout at 70ca4a35d02a50e7d6f8fd294fccb0829321eaf4; existing schema 9 needs no conversion, data deletion or CBZ rebuild. No consumer runtime shim or source behavior was added. Final exact-tree review, full gate, distribution smoke and final release-commit checks remain mandatory and are not claimed by this dependency receipt. No live external consumer, account, browser, NAS or production database was used.",
+    "note": "Reviewed all direct build, runtime, development and Node registry candidates, including versions outside the declared bounds, against the prior 0.18.1 receipt. Every non-Core latest version, Python 3.14 support result and declaration remains unchanged; prior official release-note reviews retained in Git history remain applicable. Registry discovery is the response from https://pypi.org/pypi/h2hdb/json at checked_at, not an assertion that every package-index surface agrees. The user-provided NAS build independently selected Core 0.45.0 metadata. This candidate is explicitly the local Core 0.45.0 wheel SHA256 255180d5bd152b4744a6f3932f354e110e6b621c86f211854978780089ffc8ba from merged Core 0ec9a49d0c676ac9057111f85adf50e121384e27, rather than a registry installation claim. Reviewed that exact Core diff: the bounded internal analysis query and SQL telemetry schema 2 retain database epoch 3/schema 9 and the public readonly catalog APIs consumed by Komga. Komga imports public Core values and facades only and does not parse the changed telemetry format. Normal uv dependency resolution installed the explicit Core wheel with the editable consumer and development dependencies; uv pip check passed. 43 focused tests passed with Core 0.45.0, covering installed requirements, accepted and rejected version boundaries, actual schema-9 SQLite readonly CLI startup, old and unfinished schema rejection, and public metadata mapping. The functional fast gate passed. The supported range is >=0.43.0,<0.46.0: retained 0.43/0.44 evidence is documented by the 0.18.1 receipt; unverified 0.46 remains rejected. No runtime shim, schema migration or production behavior change was needed. The patch updates metadata, boundary tests and the existing README. Final full merge gate and isolated normally resolved candidate-wheel smoke are separate mandatory checks, not claimed by this dependency receipt. No live Komga, browser, account, production or NAS database was accessed.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"
