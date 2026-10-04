@@ -211,6 +211,25 @@ Schema 8 再使用前述 Core 0.43.0 歷史 checkout 轉至 schema 9；不需清
 啟動成功只代表資料庫可供此版本使用，不代表已完成全庫稽核。
 完整資料檢查由 ingest 管理，或由管理者明確執行 H2HDB 的 `check`。
 
+## 本機資料庫整合測試
+
+一般 `pytest` 與自動 gate 不啟動服務。可攜的真實 SQL 測試使用同一個
+`database_case` 測試主體，分別收集 SQLite 與 MariaDB；完整 gate 以
+`--check-backend-pairs` 拒絕漏掉其中一個 backend 的案例。純 mock 測試不重複
+包裝成資料庫測試。真正只適用單一 engine 的測試須提供
+`backend_specific(backend=..., reason=...)`，而非略過配對要求。
+
+先安裝本 repository 的 `dev` dependencies，再使用本機 Docker 執行手動驗證：
+
+```sh
+.venv/bin/python -m pytest --collect-only -q -o addopts='' --check-backend-pairs
+H2HDB_TEST_MARIADB=1 .venv/bin/python -m pytest -q -o addopts='' -m mariadb --check-backend-pairs
+```
+
+MariaDB fixture 建立並移除一次性的 `mariadb:10.11.11` Testcontainer，每個案例
+使用獨立資料庫；只使用合成資料與容器專用帳密，不讀取生產環境設定。
+配對 collection 通過只證明案例齊全；必須另行回報上述 MariaDB 實際執行結果。
+
 ## 授權
 
 本專案由 [Kuan-Lun Wang](https://www.klwang.tw/home/) 建立，採用
