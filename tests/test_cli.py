@@ -1,5 +1,4 @@
 import multiprocessing
-import sqlite3
 from contextlib import closing
 from pathlib import Path
 from time import monotonic, sleep
@@ -18,6 +17,7 @@ from h2hdb import (
 from h2hdb_komga import __main__ as cli
 from h2hdb_komga import config_loader
 from h2hdb_komga.config_loader import KomgaConfig
+from tests.database_support import DatabaseCase
 
 
 @pytest.mark.parametrize("sync_fails", [False, True])
@@ -94,14 +94,12 @@ def test_worker_bootstrap_opens_compatible_database_read_only(
     assert original_config.database.access_mode is DatabaseAccessMode.read_write
 
 
-def test_worker_opens_real_sqlite_schema_without_mutating_database(
+def test_worker_opens_real_schema_without_mutating_database(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    database_case: DatabaseCase,
 ) -> None:
-    database_path = tmp_path / "catalog.sqlite3"
-    core_config = CoreConfig(
-        database=DatabaseConfig(sql_type="sqlite", database=str(database_path))
-    )
+    core_config = database_case.config
     with closing(VNextDatabaseAdminFacade(core_config)) as admin:
         report = admin.initialize()
     assert report.epoch == 3
@@ -112,7 +110,7 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
         pytest.fail("reader startup must not run a full database audit")
 
     monkeypatch.setattr(VNextDatabaseAdminFacade, "check", forbid_full_audit)
-    before = database_path.read_bytes()
+    before = database_case.snapshot()
     komga_config = KomgaConfig(
         base_url="https://komga.invalid",
         api_username="user",
@@ -145,7 +143,7 @@ def test_worker_opens_real_sqlite_schema_without_mutating_database(
     cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
 
     assert synchronized
-    assert database_path.read_bytes() == before
+    assert database_case.snapshot() == before
     assert core_config.database.access_mode is DatabaseAccessMode.read_write
 
 
@@ -166,20 +164,17 @@ def test_worker_rejects_incompatible_schema_before_sync_without_mutating_databas
     schema_version: int,
     state: str,
     message: str,
+    database_case: DatabaseCase,
 ) -> None:
-    database_path = tmp_path / "prior-catalog.sqlite3"
-    core_config = CoreConfig(
-        database=DatabaseConfig(sql_type="sqlite", database=str(database_path))
-    )
+    core_config = database_case.config
     with closing(VNextDatabaseAdminFacade(core_config)) as admin:
         admin.initialize()
-    with sqlite3.connect(database_path) as connection:
-        connection.execute(
-            "UPDATE h2hdb_schema_epoch SET schema_version = ?, state = ?, "
-            "ready_at = CASE WHEN ? = 'BUILDING' THEN NULL ELSE ready_at END",
-            (schema_version, state, state),
-        )
-    before = database_path.read_bytes()
+    database_case.execute(
+        "UPDATE h2hdb_schema_epoch SET schema_version = %s, state = %s, "
+        "ready_at = CASE WHEN %s = 'BUILDING' THEN NULL ELSE ready_at END",
+        (schema_version, state, state),
+    )
+    before = database_case.snapshot()
     komga_config = KomgaConfig(
         base_url="https://komga.invalid",
         api_username="user",
@@ -210,7 +205,7 @@ def test_worker_rejects_incompatible_schema_before_sync_without_mutating_databas
         cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
 
     assert not synchronized
-    assert database_path.read_bytes() == before
+    assert database_case.snapshot() == before
 
 
 def test_cli_runs_bootstrap_inside_hard_deadline_worker(monkeypatch: Any) -> None:
