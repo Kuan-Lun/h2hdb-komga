@@ -4,9 +4,13 @@
 中看到來源標題、簡介、日期與標籤。它是一個執行一次便結束的命令列工具，
 適合在 ingest 更新書庫後執行，也可以加入你的排程。
 
-本工具更新 Komga 的作品資料，不下載漫畫、不複製 CBZ，也不建立 H2HDB 資料庫。
 開始前需要已有 [H2HDB](https://github.com/Kuan-Lun/h2hdb)、
-[ingest](https://github.com/Kuan-Lun/h2hdb-ingest) 發佈的書庫，以及正在運作的 Komga。
+[ingest](https://github.com/Kuan-Lun/h2hdb-ingest) 發佈的 CBZ 書庫，
+以及正在運作的 Komga。要匯入原始漫畫資料夾，請先使用 ingest。
+
+第一次使用依序完成[準備書庫](#準備書庫)、[安裝](#安裝)與[設定](#設定)，
+之後每次更新書庫只需[執行同步](#執行同步)。
+本工具透過 Komga 帳號修改作品資料，H2HDB 資料庫與漫畫檔案維持唯讀。
 
 ## 同步哪些內容
 
@@ -25,21 +29,8 @@
 
 ## 準備書庫
 
-需要 Python 3.14 以上版本，以及支援 POSIX 檔案鎖的環境，例如 Linux 或 macOS。
-此版本使用 `h2hdb>=0.43.0,<0.46.0`，對應 epoch 3／schema version 9。
-Core 0.43、0.44 與 0.45 使用相同的 schema 9 與公開 catalog 介面。
-Core 0.45 的內容分析與診斷更新不改變本工具使用的讀取契約；未驗證的
-Core 0.46 版本系列仍不納入支援範圍。
-H2HDB 資料庫和 ingest 發佈的 CBZ 必須屬於同一個書庫。
-已完成 schema 9 轉換的資料庫不需再次轉換、清庫或重建 CBZ。
-尚未轉換的 exact schema 8 必須先停止所有 consumers，使用
-Core 0.43.0 的獨立歷史 checkout（commit
-`70ca4a35d02a50e7d6f8fd294fccb0829321eaf4`）中的
-`scripts/upgrade-observation-upload-time-schema.py` 或該版本建立的 Docker
-轉換包，依該版本 README 及對應環境升到 schema 9；目前 Core checkout 已移除
-這些一次性升級工具。舊 schema 7 先使用 Core 0.41.2 歷史工具升到 schema 8。
-既有資料庫內容、CBZ 與 Komga 閱讀進度可保留。本工具不會執行資料庫轉換，
-也不接受尚未完成轉換的 `BUILDING` 狀態。
+執行同步需要 Python 3.14 以上，以及支援 POSIX 檔案鎖的 Linux 或 macOS 環境。
+H2HDB 資料庫與 Komga 讀取的 CBZ 必須屬於同一個已發佈書庫。
 
 1. 先由 H2HDB 與 ingest 完成資料庫初始化和書庫發佈。
 2. 在 Komga 建立專用書庫，讓它只讀取 ingest 的 `current/acquisitions` 目錄，
@@ -54,6 +45,12 @@ Core 0.43.0 的獨立歷史 checkout（commit
 檔名必須是 ingest 產生的 `h2h-<gid>.cbz`，例如 `h2h-12345.cbz`；
 Komga 顯示名稱可以省略 `.cbz`。不要手動改成純數字、帶標題或雜湊的檔名。
 目標 Komga 書庫必須完整對應已發佈的 H2HDB 書庫，不能混入其他作品。
+
+本 checkout 的 Core 依賴範圍為 `h2hdb>=0.43.0,<0.46.0`，
+需要 epoch 3／schema version 9 且狀態為 `READY` 的資料庫。
+已有舊書庫時，先依 [H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
+確認適用的轉換方式；本工具不會自動升級或建立資料庫。
+已相容的書庫可沿用既有資料庫與 CBZ，不需要因安裝本工具重建書庫。
 
 ### 容器掛載範例
 
@@ -81,18 +78,22 @@ Komga 或同步容器。Coordination 路徑必須是絕對路徑，不能包含�
 
 ## 安裝
 
-在準備執行同步的主機或容器內建立獨立 Python 環境：
+以下命令在本專案 checkout 根目錄執行，建立獨立環境並安裝目前版本：
 
 ```bash
 python3.14 -m venv .venv
-.venv/bin/python -m pip install h2hdb-komga
+.venv/bin/python -m pip install .
+.venv/bin/python -m h2hdb_komga --help
 ```
 
-如果是從本專案原始碼安裝，在專案目錄將最後一行改為：
+安裝會一併解析所需依賴。若要搭配手上的 Core checkout，
+可明確指定路徑，讓安裝程式同時檢查兩者的版本要求：
 
 ```bash
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install /path/to/h2hdb-checkout .
 ```
+
+把範例路徑替換成實際位置；不需要固定的相鄰目錄名稱。
 
 ## 設定
 
@@ -123,7 +124,7 @@ export KOMGA_API_PASSWORD='replace-with-your-password'
 ```
 
 `${ENV_NAME}` 必須佔滿整個 JSON 字串，不能寫成 `prefix-${ENV_NAME}`。
-變數未設定或帳號密碼空白時，命令會停止。也可以直接在 JSON 填入字串，
+變數未設定或帳號密碼為空字串時，命令會停止。也可以直接在 JSON 填入字串，
 但使用環境變數可避免把密碼寫進設定檔。
 
 `trigger_scan` 預設為 `true`，會先要求 Komga 掃描及分析書庫。
@@ -163,11 +164,6 @@ MariaDB 範例：
 即使設定為可寫入，本工具仍會以唯讀模式開啟 H2HDB。它會修改 Komga，
 不會修改 H2HDB 資料庫或漫畫檔案。
 
-既有 schema 6 資料庫需先使用 Core 0.40.0 歷史工具轉至 schema 7，
-再使用 Core 0.41.2 歷史工具轉至 schema 8，保留 catalog 與 CBZ。
-Schema 8 再使用前述 Core 0.43.0 歷史 checkout 轉至 schema 9；不需清庫或重建 CBZ。
-其他舊版本需由 H2HDB／ingest 準備新的相容資料庫；本工具不會自動升級。
-
 ## 執行同步
 
 ```bash
@@ -176,7 +172,13 @@ Schema 8 再使用前述 Core 0.43.0 歷史 checkout 轉至 schema 9；不需清
   --h2hdbconfig h2hdb-config.json
 ```
 
-命令會觸發掃描與分析、等待 Komga 內容完整，再更新並核對作品資料。
+使用預設設定時，命令會依序：
+
+1. 確認資料庫可讀，並鎖住這次同步使用的書庫，避免 ingest 同時切換檔案。
+2. 要求 Komga 掃描及分析目標書庫。
+3. 等待 Komga 的作品與 H2HDB 已發佈內容完整對應。
+4. 更新作品資料，重新讀取確認結果，再等待內容保持穩定後結束。
+
 書庫有缺漏、額外作品、重複檔名或非 One-Shot 作品時，會等待重新檢查，
 不會只挑其中一部分開始同步。H2HDB 和 Komga 同時為空書庫也是有效狀態。
 
@@ -190,7 +192,7 @@ Schema 8 再使用前述 Core 0.43.0 歷史 checkout 轉至 schema 9；不需清
   --timeout-seconds 7200
 ```
 
-命令正常結束代表本次同步完成；非零結束碼代表失敗，請檢查終端機記錄。
+結束碼 `0` 代表本次同步完成；非零結束碼代表失敗，請檢查終端機記錄。
 逾時或中斷前可能已有部分作品更新，排除原因後可重新執行完整命令。
 若加入排程，請使用 Python 與設定檔的絕對路徑，並在排程環境提供所需變數。
 同步期間會阻止 ingest 切換書庫，安排時間時請考慮整次同步所需時間。
@@ -205,30 +207,25 @@ Schema 8 再使用前述 Core 0.43.0 歷史 checkout 轉至 schema 9；不需清
 | Komga 有作品但無法同步 | 檢查 `library_id`、One-Shot 設定，以及檔名是否為 `h2h-<gid>.cbz` |
 | 持續等待或超過期限 | 檢查 Komga 掃描進度及記錄；排除缺少、額外、重複或非 One-Shot 作品後重試 |
 | 掃描或分析請求逾時 | 確認 Komga 服務恢復後重新執行；逾時不能視為同步成功 |
-| 資料庫版本不相容 | 依 H2HDB 說明先完成升級或重建，不能藉由更改設定略過檢查 |
+| 資料庫版本不相容 | 先依 H2HDB 說明確認轉換方式，勿直接刪除資料或略過檢查 |
 | 標籤沒有出現在 Komga 的 Tags | 標籤寫入作者清單，命名空間顯示為角色；這是預期行為 |
 
 啟動成功只代表資料庫可供此版本使用，不代表已完成全庫稽核。
-完整資料檢查由 ingest 管理，或由管理者明確執行 H2HDB 的 `check`。
+需要完整資料檢查時，依 H2HDB 的管理說明執行資料庫稽核。
 
-## 本機資料庫整合測試
+## 回報問題與參與開發
 
-一般 `pytest` 與自動 gate 不啟動服務。可攜的真實 SQL 測試使用同一個
-`database_case` 測試主體，分別收集 SQLite 與 MariaDB；完整 gate 以
-`--check-backend-pairs` 拒絕漏掉其中一個 backend 的案例。純 mock 測試不重複
-包裝成資料庫測試。真正只適用單一 engine 的測試須提供
-`backend_specific(backend=..., reason=...)`，而非略過配對要求。
+使用問題或錯誤可回報至 [Issues](https://github.com/Kuan-Lun/h2hdb-komga/issues)。
+請附上套件與 Komga 版本、出錯的操作及同步記錄；
+貼出設定前，先移除帳號密碼與不願公開的書庫資料。
+可用以下命令查看已安裝的套件版本：
 
-先安裝本 repository 的 `dev` dependencies，再使用本機 Docker 執行手動驗證：
-
-```sh
-.venv/bin/python -m pytest --collect-only -q -o addopts='' --check-backend-pairs
-H2HDB_TEST_MARIADB=1 .venv/bin/python -m pytest -q -o addopts='' -m mariadb --check-backend-pairs
+```bash
+.venv/bin/python -m pip show h2hdb-komga h2hdb
 ```
 
-MariaDB fixture 建立並移除一次性的 `mariadb:10.11.11` Testcontainer，每個案例
-使用獨立資料庫；只使用合成資料與容器專用帳密，不讀取生產環境設定。
-配對 collection 通過只證明案例齊全；必須另行回報上述 MariaDB 實際執行結果。
+要修改程式，請先閱讀 [AGENTS.md](AGENTS.md)；
+環境與檢查入口位於 [scripts](scripts)。一般使用不需要執行開發測試。
 
 ## 授權
 
