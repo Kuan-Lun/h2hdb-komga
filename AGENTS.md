@@ -133,8 +133,10 @@
   測試、工具、設定、dependency metadata、schema、CI 與 hooks 都不屬於純文件。
   Git 或分類器錯誤必須停止，不能降級為文件檢查。
 - `scripts/check-docs.py --index --base HEAD` 從 Git 匯出 exact staged
-  candidate，在隔離暫存目錄只檢查 candidate 內的 Markdown 與 diff whitespace；
-  不得以未 stage 的工作樹內容取代 candidate。純文件 commit 與 merge
+  candidate，在隔離暫存目錄檢查 candidate 內的 Markdown 與 diff whitespace，
+  並從 candidate metadata 驗證套件 README 引用仍存在且為普通檔案；
+  inline text 不要求外部文件。不得以未 stage 的工作樹內容取代 candidate。
+  純文件 commit 與 merge
   只執行此文件 gate，不啟動 Ruff、formatter、mypy、pytest、build、
   runtime/schema checks 或 online code review；既有 branch、Conventional
   Commit、merge 與 version checks 仍須執行。
