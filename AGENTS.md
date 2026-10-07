@@ -129,8 +129,8 @@
   `benchmarks/README.md` 與 `verification/README.md`，且新增、修改或刪除
   的兩側只能是普通 `100644` 檔案。Rename 以刪除與新增分別檢查；
   executable、symlink、submodule、type/mode change、未知路徑及空差異
-  一律使用 `full`。`AGENTS.md`、`CLAUDE.md`、程式、測試、工具、設定、
-  dependency metadata、schema、CI 與 hooks 都不屬於純文件。
+  一律使用 `full`。`AGENTS.md`、`CLAUDE.md` 及其大小寫變體、程式、
+  測試、工具、設定、dependency metadata、schema、CI 與 hooks 都不屬於純文件。
   Git 或分類器錯誤必須停止，不能降級為文件檢查。
 - `scripts/check-docs.py --index --base HEAD` 從 Git 匯出 exact staged
   candidate，在隔離暫存目錄只檢查 candidate 內的 Markdown 與 diff whitespace；
