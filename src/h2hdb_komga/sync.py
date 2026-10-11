@@ -7,6 +7,7 @@ import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -759,7 +760,14 @@ def sync_komga_library(
     poll_interval_seconds: float = SETTLING_POLL_INTERVAL_SECONDS,
     stable_observation_seconds: float = SETTLING_STABLE_OBSERVATION_SECONDS,
     timeout_seconds: float = SETTLING_TIMEOUT_SECONDS,
+    snapshot_directory: Path | None = None,
 ) -> None:
+    """Synchronize under the publication lock using a private snapshot.
+
+    A supplied directory must be empty and owned by the caller, which removes it
+    after this call (or its worker process) finishes. Otherwise this call owns
+    the temporary directory itself.
+    """
     with LibraryReadCoordinator(komgaconfig.coordination_root).read():
         _sync_komga_library(
             komgaconfig,
@@ -770,6 +778,7 @@ def sync_komga_library(
             poll_interval_seconds=poll_interval_seconds,
             stable_observation_seconds=stable_observation_seconds,
             timeout_seconds=timeout_seconds,
+            snapshot_directory=snapshot_directory,
         )
 
 
@@ -783,6 +792,7 @@ def _sync_komga_library(
     poll_interval_seconds: float,
     stable_observation_seconds: float,
     timeout_seconds: float,
+    snapshot_directory: Path | None,
 ) -> None:
     _validate_settling_timing(
         poll_interval_seconds=poll_interval_seconds,
@@ -818,7 +828,12 @@ def _sync_komga_library(
     previous_fingerprint: str | None = None
     previous_catalog_revision: int | None = None
     stable_since: float | None = None
-    with TemporaryDirectory(prefix="h2hdb-komga-snapshot-") as directory:
+    workspace = (
+        TemporaryDirectory(prefix="h2hdb-komga-snapshot-")
+        if snapshot_directory is None
+        else nullcontext(snapshot_directory)
+    )
+    with workspace as directory:
         store = _SnapshotStore(Path(directory) / "snapshot.sqlite3")
         try:
             while True:

@@ -369,6 +369,14 @@ schema。
   自建 catalog facade 必須在 sync 成功或失敗後 finally 關閉。
   Outer process supervisor 必須維持 wall-clock hard
   deadline，即使 socket、database gate 或 thread 不合作也能終止 worker。
+  Supervisor 同時擁有 worker 與每次執行的 snapshot workspace；收到
+  SIGTERM、SIGINT 或 SIGHUP 時停止同步，先給 worker 1 秒 terminate grace，
+  必要時 kill 並以 1 秒期限確認退出及回收，再刪除 workspace。Hard deadline
+  到期亦使用相同 cleanup；這兩秒為停止後的 cleanup reserve，不是額外同步時間。
+  重複訊號不得打斷 cleanup，無法確認退出時保留 workspace 並回報失敗。
+  OS 無法確認 worker 退出時，multiprocessing 的 interpreter shutdown 仍可能
+  等待該 worker；此 fail-closed 例外不保證 supervisor 能在期限內正常退出。
+  SIGKILL 等無法攔截的 supervisor 強制終止不提供 cleanup 保證。
 
 ### Verification
 

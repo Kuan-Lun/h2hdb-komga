@@ -27,6 +27,7 @@ def test_worker_bootstrap_opens_compatible_database_read_only(
     sync_fails: bool,
 ) -> None:
     events: list[str] = []
+    supervised_snapshot = tmp_path / "supervised-snapshot"
     original_config = CoreConfig(
         database=DatabaseConfig(
             sql_type="sqlite", access_mode=DatabaseAccessMode.read_write
@@ -68,10 +69,12 @@ def test_worker_bootstrap_opens_compatible_database_read_only(
         selected_reader: FakeCatalogReader,
         *,
         timeout_seconds: float,
+        snapshot_directory: Path | None = None,
     ) -> None:
         assert config is komga_config
         assert selected_reader is reader
         assert timeout_seconds == 17
+        assert snapshot_directory == supervised_snapshot
         events.append("synced")
         if sync_fails:
             raise RuntimeError("sync failed")
@@ -85,9 +88,11 @@ def test_worker_bootstrap_opens_compatible_database_read_only(
     monkeypatch.setattr(cli, "sync_komga_library", sync)
     if sync_fails:
         with pytest.raises(RuntimeError, match="sync failed"):
-            cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
+            cli._sync_from_config_paths(
+                "komga.json", "h2hdb.json", 17, supervised_snapshot
+            )
     else:
-        cli._sync_from_config_paths("komga.json", "h2hdb.json", 17)
+        cli._sync_from_config_paths("komga.json", "h2hdb.json", 17, supervised_snapshot)
 
     assert events == ["readiness", "admin-closed", "opened", "synced", "catalog-closed"]
     assert opened_configs[0].database.access_mode is DatabaseAccessMode.read_only
@@ -126,6 +131,7 @@ def test_worker_opens_real_schema_without_mutating_database(
         reader: CatalogReader,
         *,
         timeout_seconds: float,
+        snapshot_directory: Path | None = None,
     ) -> None:
         nonlocal synchronized
         assert selected_config is komga_config
@@ -191,6 +197,7 @@ def test_worker_rejects_incompatible_schema_before_sync_without_mutating_databas
         reader: CatalogReader,
         *,
         timeout_seconds: float,
+        snapshot_directory: Path | None = None,
     ) -> None:
         nonlocal synchronized
         del selected_config, reader, timeout_seconds
@@ -236,12 +243,16 @@ def test_cli_runs_bootstrap_inside_hard_deadline_worker(monkeypatch: Any) -> Non
     assert calls == [(cli._sync_worker, ("komga.json", "h2hdb.json", 23.5), 23.5)]
 
 
+def _sleep_worker(seconds: float, _snapshot_directory: Path) -> None:
+    sleep(seconds)
+
+
 def test_process_supervisor_kills_a_blocked_worker_at_the_deadline() -> None:
     started_at = monotonic()
 
     with pytest.raises(TimeoutError, match=r"0.05s hard timeout"):
         cli._run_process_with_hard_timeout(
-            sleep,
+            _sleep_worker,
             (10,),
             timeout_seconds=0.05,
             process_context=multiprocessing.get_context("spawn"),
