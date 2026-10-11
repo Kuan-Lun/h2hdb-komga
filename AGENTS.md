@@ -55,6 +55,11 @@
   必須 abort merge 並保留 task branch。若無法證明 owned process cleanup，這是明確
   例外：不得讓仍存活的 hook 與 abort 競爭，保留 candidate 與 task 待確認及安全處理。
   已成功建立的 merge commit 不因後續中斷或清理失敗而回滾。
+- POSIX canonical nested owner 在建立新 session 前，必須先向外層登記清理責任。
+  外層先關閉 admission，再以 TERM 啟動清理；只有內層證明自身 group 與所有
+  nested obligations 已清空，才能強制終止該 owner 或宣告整棵樹清空。
+  Lock 等待共用既有 deadline，不延長 grace 取代證據。內層非預期死亡或 ledger
+  不可驗證時保留 candidate、task 與 scope；刻意脫離且未登記的程序不在保證內。
 - merge 後收到的任何 follow-up 都建立新的 task branch。
 - 本機 task branch、commit、`--no-ff` merge 與 `branch -d` 已獲預先
   授權。
