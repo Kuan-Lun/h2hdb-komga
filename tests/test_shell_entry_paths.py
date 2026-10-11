@@ -308,3 +308,42 @@ def test_mutating_entries_do_not_select_a_truncated_neighbor(
         assert (
             Path(os.fsdecode(received[0])) / "relative.whl"
         ).read_bytes() == b"explicit caller input"
+
+
+@pytest.mark.parametrize("entry", ["rebuild-env.sh", "detect-primary-branch.sh"])
+@pytest.mark.parametrize("foreign", [False, True])
+def test_relative_entry_ignores_cdpath_search_and_output(
+    repository: Path, tmp_path: Path, entry: str, foreign: bool
+) -> None:
+    neighbor = tmp_path / "foreign"
+    neighbor.mkdir()
+    subprocess.run(
+        ("git", "init", "-b", "main", str(neighbor)),
+        env=_environment(),
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+    shared = "primary-branch.sh" if entry == "detect-primary-branch.sh" else entry
+    for root in (repository, neighbor):
+        _copy(root, f"scripts/{entry}")
+        _shell(
+            root,
+            f"scripts/_shared/h2h_dev_tools/{shared}",
+            "printf '%s\\0' \"$1\" > \"$1/selected-root\"\nprintf 'main\\n'\n",
+        )
+    result = subprocess.run(
+        ("bash", f"scripts/{entry}"),
+        cwd=repository,
+        env=_environment() | {"CDPATH": str(neighbor) if foreign else "."},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == "main\n"
+    assert (repository / "selected-root").read_bytes() == os.fsencode(
+        repository
+    ) + b"\0"
+    assert not (neighbor / "selected-root").exists()

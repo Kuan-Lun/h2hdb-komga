@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
+CDPATH= cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
 
 [[ -x .venv/bin/ruff ]] || {
     printf 'Missing .venv tooling; run scripts/rebuild-env.sh\n' >&2

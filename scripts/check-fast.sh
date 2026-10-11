@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
+CDPATH= cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
 repository_root=$PWD
 
 for executable in .venv/bin/ruff .venv/bin/mypy node_modules/.bin/markdownlint-cli2; do

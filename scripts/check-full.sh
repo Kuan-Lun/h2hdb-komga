@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
+CDPATH= cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
 repository_root=$PWD
 
 scripts/check-fast.sh
