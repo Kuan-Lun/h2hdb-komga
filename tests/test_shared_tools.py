@@ -15,13 +15,14 @@ _ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.skipif(
     os.name != "posix", reason="The repository shell gate is POSIX-only"
 )
-@pytest.mark.parametrize("damage", ("modified", "missing", "unexpected"))
+@pytest.mark.parametrize("damage", (None, "modified", "missing", "unexpected"))
 def test_fast_gate_rejects_damaged_snapshot_before_quality_tools(
-    tmp_path: Path, damage: str
+    tmp_path: Path, damage: str | None
 ) -> None:
     repository = tmp_path / "checkout"
     scripts = repository / "scripts"
     scripts.mkdir(parents=True)
+    shutil.copy2(_ROOT / "pyproject.toml", repository / "pyproject.toml")
     shutil.copy2(_ROOT / "scripts/check-fast.sh", scripts / "check-fast.sh")
     shutil.copytree(_ROOT / "scripts/_shared", scripts / "_shared")
     bundle = scripts / "_shared/h2h_dev_tools"
@@ -30,7 +31,7 @@ def test_fast_gate_rejects_damaged_snapshot_before_quality_tools(
             stream.write("\nraise AssertionError('modified snapshot must not run')\n")
     elif damage == "missing":
         (bundle / "dependency_manifest.py").unlink()
-    else:
+    elif damage == "unexpected":
         (bundle / "unexpected.py").write_text("unexpected = True\n", encoding="utf-8")
     marker = repository / "quality-tool-started"
     executables = {
@@ -67,6 +68,15 @@ def test_fast_gate_rejects_damaged_snapshot_before_quality_tools(
         timeout=30,
     )
 
-    assert result.returncode != 0
-    assert "h2h-dev-tools" in result.stderr
-    assert not marker.exists()
+    if damage is None:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert marker.exists()
+    else:
+        assert result.returncode != 0
+        expected = (
+            "Generated source was modified: dependency_manifest.py"
+            if damage == "modified"
+            else "Bundle file closure mismatch"
+        )
+        assert expected in result.stderr
+        assert not marker.exists()

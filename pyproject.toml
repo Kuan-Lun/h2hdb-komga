@@ -66,6 +66,7 @@ markers = [
 ]
 
 [tool.h2h.version]
+dedicated-release-commit = true
 development-paths = [
     ".claude/**",
     ".Codex/**",

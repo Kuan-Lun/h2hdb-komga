@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -112,11 +113,16 @@ def _repository(tmp_path: Path, *, install_hooks: bool = True) -> Path:
     _write(repository, "scripts/review-code.py", _FAKE_REVIEW)
     _write(repository, ".gitignore", ".venv/\nnode_modules/\n__pycache__/\n")
     _write(repository, "README.md", "# Fixture\n")
+    policy = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "tool"
+    ]["h2h"]["version"]
+    dedicated_release = str(policy.get("dedicated-release-commit", False)).lower()
     _write(
         repository,
         "pyproject.toml",
         '[project]\nname = "workflow-fixture"\nversion = "0.1.0"\n'
         '[tool.h2h.version]\nrelease-paths = ["src/**"]\n'
+        f"dedicated-release-commit = {dedicated_release}\n"
         'development-paths = ["README.md", "docs/**", "tests/**", "scripts/**", "AGENTS.md"]\n',
     )
     _write(
@@ -358,3 +364,64 @@ def test_full_merge_gate_rechecks_review_after_program_checks(
     assert _git(repository, "branch", "--show-current") == "docs/task"
     assert not (repository / ".git/MERGE_HEAD").exists()
     assert _git(repository, "status", "--porcelain") == ""
+
+
+def test_merge_uses_repository_python_when_path_python_is_unusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = _repository(tmp_path)
+    _write(repository, "tests/example.py", "value = 1\n")
+    _commit(repository, "test: add example")
+    (repository.parent / "checks.log").write_text("", encoding="utf-8")
+    host_python = tmp_path / "host-bin/python3"
+    host_python.parent.mkdir()
+    host_python.write_text(
+        "#!/usr/bin/env bash\necho 'system Python must not run' >&2\nexit 85\n",
+        encoding="utf-8",
+    )
+    host_python.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{host_python.parent}{os.pathsep}{os.environ['PATH']}")
+
+    result = _run(repository, "scripts/git-flow-merge.sh")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "system Python must not run" not in result.stderr
+    assert _checks(repository) == ["run", "verify", "full", "verify"]
+
+
+@pytest.mark.parametrize(
+    "transitions",
+    (
+        (("0.1.1", "chore: mix a version change into a normal commit"),),
+        (
+            ("0.1.2", "chore(release): bump version to 0.1.2"),
+            ("0.1.1", "chore(release): bump version to 0.1.1"),
+        ),
+    ),
+)
+def test_repository_release_policy_rejects_invalid_task_version_commits(
+    tmp_path: Path, transitions: tuple[tuple[str, str], ...]
+) -> None:
+    repository = _repository(tmp_path)
+    _write(repository, "src/runtime.py", "value = 1\n")
+    _commit(repository, "fix: add fixture runtime")
+    primary = _git(repository, "rev-parse", "main")
+    manifest = repository / "pyproject.toml"
+    previous = "0.1.0"
+    for version, message in transitions:
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                f'version = "{previous}"', f'version = "{version}"'
+            ),
+            encoding="utf-8",
+        )
+        _commit(repository, message)
+        previous = version
+
+    result = _run(repository, "scripts/git-flow-merge.sh")
+
+    assert result.returncode != 0
+    assert "version transition requires its dedicated release commit" in result.stderr
+    assert _git(repository, "rev-parse", "main") == primary
+    assert _git(repository, "branch", "--show-current") == "docs/task"
+    assert not (repository / ".git/MERGE_HEAD").exists()
