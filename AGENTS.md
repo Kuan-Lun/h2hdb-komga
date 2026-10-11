@@ -42,8 +42,10 @@
 - 任務完成後執行 `scripts/git-flow-merge.sh`，先建立 two-parent staged candidate，
   full profile 通過 Codex code review 後才執行既有 gate 與 `--no-ff` merge。
   成功後安全移除 task worktree，並以 `git branch -d` 刪除已合併的本機 branch。
-  實際 merge 使用 repository-local Python 擁有 Git／hook process tree；
-  已整合 task 的 no-op／`--cleanup-only` 不需要 Python 環境。
+  實際 merge 使用 repository-local Python 擁有 Git／hook／review process tree，
+  包含 review 前置分類與 Codex CLI 探測；review 與 commit 使用真正 staged
+  candidate 匯出的 owner 實作。已整合 task 的 no-op／`--cleanup-only` 不需要
+  Python 環境。
 - primary 在任務期間可以推進；整合只要求 primary 與 task branch 有共同
   ancestor，不要求 task branch 仍直接基於目前 primary tip。
 - merge conflict 或 gate failure 時，確認 owned review／hook process tree 已清空後
@@ -221,6 +223,8 @@
   `scripts/review-code.py verify` 只離線驗證 Git common metadata 的 `h2h-review`
   evidence，綁定 exact tree、ordered parents、本檔、入口與完整 reviewer 實作。
   `--revision` 可檢查既有 commit；正式整合使用 `--index`。
+- Passing evidence 只能在 reviewer owned process tree 已確認清空後發布；
+  cleanup 失敗不得留下可重用的 passing evidence。
 - 明確重跑同一 candidate 的 `run` 先廢止舊結果；失敗不得沿用。每個 candidate
   只允許單一 review owner，重疊 run 與審查中的 POSIX verify 必須拒絕。
 - 既有 pre-merge gate 在 full checks 前後離線 verify 相同 candidate，不能自行

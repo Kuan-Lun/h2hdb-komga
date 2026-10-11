@@ -11,13 +11,13 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from . import bundle_verify, change_scope
+from . import bundle_verify, change_scope, merge_command
 from . import process as process_control
 
 PROFILE = "h2h-code-review-v2"
@@ -270,6 +270,42 @@ def _stop(process: subprocess.Popen[bytes]) -> None:
         raise ReviewError("Codex did not exit after termination") from error
 
 
+def _external_process_owner() -> bool:
+    """Admit inherited ownership only for the external launcher's direct leader."""
+    value = os.environ.get("H2H_REVIEW_PROCESS_OWNER")
+    if value is None:
+        return False
+    try:
+        owner = int(value)
+    except ValueError as error:
+        raise ReviewError("Invalid review process owner") from error
+    if (
+        os.name != "posix"
+        or owner <= 0
+        or os.getppid() != owner
+        or os.getpgrp() != os.getpid()
+    ):
+        raise ReviewError(
+            "Review process owner does not match the current parent/group"
+        )
+    if os.environ.get("H2H_REVIEW_OWNER_SOURCE") != merge_command.owner_source_digest():
+        raise ReviewError(
+            "Review process owner implementation differs from the candidate"
+        )
+    return True
+
+
+def _stop_direct_child(process: subprocess.Popen[bytes]) -> None:
+    # The external owner controls this entire group, including this reviewer.
+    # Stop only the direct command here; it proves final group cleanup after this
+    # frame exits, including when this Python process is uncatchably killed.
+    process.kill()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired as error:
+        raise ReviewError("Codex did not exit after termination") from error
+
+
 @dataclass(frozen=True)
 class Reviewer:
     """Keep candidate, Git metadata and policy operations local to one repository."""
@@ -311,6 +347,7 @@ class Reviewer:
         # Both candidate source and executed implementation belong to the contract.
         executed_paths = {name: Path(__file__).with_name(name) for name in REVIEW_FILES}
         executed_paths["bundle_verify.py"] = Path(bundle_verify.__file__)
+        executed_paths["merge_command.py"] = Path(merge_command.__file__)
         executed_paths["process.py"] = Path(process_control.__file__)
         executed_paths["change_scope.py"] = Path(change_scope.__file__)
         for name, executed_path in executed_paths.items():
@@ -393,8 +430,9 @@ class Reviewer:
             finally:
                 fcntl.flock(stream, fcntl.LOCK_UN)
 
-    def _read_evidence(self, target: Target) -> Evidence:
-        path = self._receipt_path(target)
+    def _read_evidence(self, target: Target, *, path: Path | None = None) -> Evidence:
+        if path is None:
+            path = self._receipt_path(target)
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
             if (
@@ -516,6 +554,7 @@ class Reviewer:
     def _execute(
         self, command: list[str], prompt: str, run_directory: Path, timeout: int
     ) -> None:
+        externally_owned = _external_process_owner()
         try:
             with (
                 process_control.controlled_termination_signals() as controller,
@@ -533,7 +572,10 @@ class Reviewer:
                             stdin=subprocess.PIPE,
                             stdout=output,
                             stderr=errors,
-                            start_new_session=True,
+                            start_new_session=not externally_owned,
+                            # Ownership applies only to this reviewer, never to
+                            # commands/tests which Codex may itself execute.
+                            env=merge_command.without_review_owner(os.environ),
                         )
                     process.communicate(prompt.encode(), timeout=timeout)
                     if process.returncode:
@@ -551,7 +593,10 @@ class Reviewer:
                         # a timeout, normal exit or the first interruption.
                         with controller.defer():
                             try:
-                                _stop(process)
+                                if externally_owned:
+                                    _stop_direct_child(process)
+                                else:
+                                    _stop(process)
                             finally:
                                 if process.stdin is not None:
                                     process.stdin.close()
@@ -571,10 +616,12 @@ class Reviewer:
         model: str | None,
         run_directory: Path,
         coverage: Coverage | None = None,
+        *,
+        destination: Path | None = None,
     ) -> Path:
         if coverage is None:
             coverage = Coverage()
-        path = self._receipt_path(target)
+        path = self._receipt_path(target) if destination is None else destination
         path.parent.mkdir(parents=True, exist_ok=True)
         document = {
             "schema_version": 2,
@@ -593,6 +640,22 @@ class Reviewer:
         )
         os.replace(temporary, path)
         return path
+
+    def _publish_managed_receipt(self, target: Target, pending: Path) -> Path:
+        """Publish only under the outer owner's lock, after its tree is empty."""
+        evidence = self._read_evidence(target, path=pending)
+        with self._select_coverage(
+            target, force_repository=evidence.coverage.scope == "repository"
+        ) as coverage:
+            if evidence.coverage != coverage:
+                raise ReviewError("Review coverage changed before owner completion")
+            self._assert_workspace(target)
+            if self._target(index=True) != target:
+                raise ReviewError("The candidate changed before owner completion")
+            path = self._receipt_path(target)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(pending, path)
+            return path
 
     def _run(
         self,
@@ -630,13 +693,12 @@ class Reviewer:
         runs = self._directory() / "runs"
         runs.mkdir(parents=True, exist_ok=True)
         run_directory = Path(tempfile.mkdtemp(prefix=f"{target.key[:12]}-", dir=runs))
-        version = subprocess.run(
-            ("codex", "--version"),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        ).stdout.strip()
+        version_directory = run_directory / "version"
+        version_directory.mkdir()
+        self._execute(["codex", "--version"], "", version_directory, 10)
+        version = (
+            (version_directory / "events.jsonl").read_text(encoding="utf-8").strip()
+        )
         if not version:
             raise ReviewError("Codex did not report its version")
         schema_path = run_directory / "schema.json"
@@ -677,10 +739,24 @@ class Reviewer:
         if self._target(index=index, revision=revision) != target:
             raise ReviewError("The candidate or review policy changed during review")
         self._require_coverage(target, coverage)
+        managed = _external_process_owner()
         receipt = self._write_receipt(
-            target, result, version, model, run_directory, coverage
+            target,
+            result,
+            version,
+            model,
+            run_directory,
+            coverage,
+            destination=Path(os.environ["H2H_REVIEW_PENDING_RECEIPT"])
+            if managed
+            else None,
         )
-        print(f"{result['summary']}\nCode review passed; wrote {receipt}")
+        if managed:
+            print(
+                f"{result['summary']}\nReview result pending owner cleanup: {receipt}"
+            )
+        else:
+            print(f"{result['summary']}\nCode review passed; wrote {receipt}")
 
 
 def main(repository: Path) -> None:
@@ -720,7 +796,19 @@ def main(repository: Path) -> None:
                     f"Verified exact-candidate code review: {reviewer._verify(target)}"
                 )
         else:
-            with reviewer._review_lock(target, exclusive=True):
+            managed = _external_process_owner()
+            if managed and (
+                os.environ.get("H2H_REVIEW_LOCK_TARGET") != target.key
+                or not os.environ.get("H2H_REVIEW_PENDING_RECEIPT")
+            ):
+                raise ReviewError("Review owner does not hold this candidate's lock")
+            # The managed parent retains the same exclusive lock until all
+            # descendants are gone and it has published the pending evidence.
+            with (
+                nullcontext()
+                if managed
+                else reviewer._review_lock(target, exclusive=True)
+            ):
                 # A rejected overlapping request never starts a new review.
                 # Once admitted, even failed preflight invalidates the old result.
                 reviewer._receipt_path(target).unlink(missing_ok=True)
