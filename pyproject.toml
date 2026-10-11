@@ -66,9 +66,31 @@ markers = [
 ]
 
 [tool.h2h.version]
+development-paths = [
+    ".claude/**",
+    ".Codex/**",
+    ".github/**",
+    ".githooks/**",
+    ".gitignore",
+    ".markdownlint-cli2.jsonc",
+    "mypy.ini",
+    ".release/**",
+    ".vscode/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/**",
+    "package.json",
+    "scripts/**",
+    "tests/**",
+    "verification/**",
+]
 release-paths = ["LICENSE", "src/**"]
 
 # Testcontainers does not publish a complete type surface.
 [[tool.mypy.overrides]]
 module = ["testcontainers.*"]
 ignore_missing_imports = true
+
+[tool.h2h-dev-tools]
+components = ["offline-wheel", "distribution-check", "change-scope", "dependencies", "dependency-audit", "documentation", "environment", "git-flow", "hooks", "primary-branch", "publish-version", "version-policy"]

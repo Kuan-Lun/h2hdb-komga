@@ -2,64 +2,20 @@
 
 from __future__ import annotations
 
-import importlib
 import json
+import subprocess
 import sys
 from contextlib import closing
-from importlib.metadata import Distribution, PackageNotFoundError, distribution
+from importlib.metadata import distribution
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from packaging.requirements import Requirement
-
-
-def check_runtime_requirements(package: Distribution) -> dict[str, str]:
-    selected: dict[str, str] = {}
-    for raw in package.requires or ():
-        requirement = Requirement(raw)
-        if requirement.marker is not None and not requirement.marker.evaluate(
-            {"extra": ""}
-        ):
-            continue
-        try:
-            dependency = distribution(requirement.name)
-        except PackageNotFoundError as error:
-            raise RuntimeError(
-                f"{package.metadata['Name']} requires {requirement}; package is missing"
-            ) from error
-        if dependency.version not in requirement.specifier:
-            raise RuntimeError(
-                f"{package.metadata['Name']} requires {requirement}; "
-                f"installed {requirement.name}=={dependency.version}"
-            )
-        selected[requirement.name] = dependency.version
-    return selected
-
-
-def check_wheel_origin(project: str, module_name: str, *, local: bool) -> str:
-    package = distribution(project)
-    module = importlib.import_module(module_name)
-    if module.__file__ is None:
-        raise RuntimeError(f"{project} has no import origin")
-    actual = Path(module.__file__).resolve()
-    record_name = module_name + "/__init__.py"
-    expected = Path(str(package.locate_file(record_name))).resolve()
-    if actual != expected:
-        raise RuntimeError(
-            f"{project} import disagrees with installed metadata: {actual}"
-        )
-    if package.files is None or not any(
-        str(item) == record_name for item in package.files
-    ):
-        raise RuntimeError(f"{project} has no installed package RECORD")
-    direct = json.loads(package.read_text("direct_url.json") or "{}")
-    if direct.get("dir_info", {}).get("editable", False):
-        raise RuntimeError(
-            f"{project} must come from a wheel, not an editable checkout"
-        )
-    if local and not actual.is_relative_to(Path(sys.prefix).resolve()):
-        raise RuntimeError(f"{project} must be installed inside the smoke environment")
-    return str(actual)
+# Isolated smoke execution imports only tool sources, never repository runtime src.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _shared.h2h_dev_tools.distribution_check import (
+    check_runtime_requirements,
+    check_wheel_origin,
+)
 
 
 def check_sqlite_reader() -> None:
@@ -111,6 +67,11 @@ def main() -> None:
         "h2hdb-komga": check_wheel_origin("h2hdb-komga", "h2hdb_komga", local=True),
         "h2hdb": check_wheel_origin("h2hdb", "h2hdb", local=False),
     }
+    subprocess.run(
+        [sys.executable, "-I", "-m", "h2hdb_komga", "--help"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
     check_sqlite_reader()
     print(
         json.dumps(

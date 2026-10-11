@@ -15,9 +15,7 @@ AuditNode = Callable[[str, str], dict[str, object]]
 
 def _audit_node(monkeypatch: MonkeyPatch) -> AuditNode:
     monkeypatch.syspath_prepend(Path(__file__).parents[1] / "scripts")
-    namespace = runpy.run_path(
-        str(Path(__file__).parents[1] / "scripts" / "audit-dependencies.py")
-    )
+    namespace = runpy.run_module("_shared.h2h_dev_tools.dependency_audit")
     return cast(AuditNode, namespace["_audit_node"])
 
 
