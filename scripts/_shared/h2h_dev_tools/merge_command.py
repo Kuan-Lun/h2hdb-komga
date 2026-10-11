@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import os
 import sys
+import tempfile
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
@@ -59,7 +60,6 @@ def main() -> int:
         parser.error("a Git merge command is required")
     environment = without_review_owner(os.environ)
     receipt: Path = arguments.cleanup_receipt
-    pending = receipt.with_suffix(".review-pending")
     # Windows still owns classification through a Job Object. Documentation can
     # finish without online review; full review is rejected by the reviewer until
     # that platform's online-review lifecycle has been implemented and verified.
@@ -74,6 +74,14 @@ def main() -> int:
                 reviewer._assert_workspace(target)
                 locks.enter_context(reviewer._review_lock(target, exclusive=True))
                 reviewer._receipt_path(target).unlink(missing_ok=True)
+                # Both pending and final evidence must share Git metadata's
+                # filesystem, even when TMPDIR is on a different volume.
+                pending_directory = locks.enter_context(
+                    tempfile.TemporaryDirectory(
+                        prefix="pending-", dir=reviewer._directory()
+                    )
+                )
+                pending = Path(pending_directory) / "receipt.json"
             except (code_review.ReviewError, OSError, ValueError) as error:
                 # No command was started: this stage has no owned descendants.
                 print(f"merge-command: {error}", file=sys.stderr)

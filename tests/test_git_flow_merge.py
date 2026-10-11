@@ -124,7 +124,8 @@ def test_failed_merge_gate_aborts_the_primary_worktree_and_retains_task(
     hooks = primary_worktree / ".githooks"
     scripts.mkdir()
     hooks.mkdir()
-    for name in ("detect-primary-branch.sh", "git-flow-merge.sh"):
+    shutil.copy2(source_root / "AGENTS.md", primary_worktree / "AGENTS.md")
+    for name in ("detect-primary-branch.sh", "git-flow-merge.sh", "review-code.py"):
         shutil.copy2(source_root / "scripts" / name, scripts / name)
     shutil.copytree(
         source_root / "scripts/_shared",

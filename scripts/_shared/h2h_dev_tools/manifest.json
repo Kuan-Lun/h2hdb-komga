@@ -26,7 +26,7 @@
     "documentation.py": "c54c95c72107967cfd2884cf7552754ea928302148f39f347117461f4a1f03c2",
     "git-flow-merge.sh": "f5eddcb9adb2f8571504658fc489af8c0c96601fe9c5da5b4060540b53fd2c5b",
     "install-git-hooks.sh": "0ead0ec2dc58387236b0c675af5cd1b0f5b2a7335781cf16007a6c40701f8cec",
-    "merge_command.py": "4daa77f67b29f59f2c427edc19bc2b0728e96b6e1436c5e0a3c7f02ea3d719e7",
+    "merge_command.py": "4eb38b35d7dd39be25c667174d0d5855e610ed8ca811164a7d99bc44083aca44",
     "offline_wheel.py": "24ffcf8a74620a08ba152e78b865ac0a4a0c28de152ddcd5c8995f6f998cc8c7",
     "primary-branch.sh": "602f2c63659e10b6dc835fc4026bf9371d9def1fcb49cbdbfabe7fb7b4d76aa5",
     "process.py": "315c60b9f63544223fc4cab105d58ba2eb306ca384850e9666d22f4dc5719e81",
@@ -35,7 +35,7 @@
     "review-merge-candidate.sh": "6ae1a418f30cb401b6ebdb2cbda898d8b00f2d8fccd6100b3021bd0ae5fdc413",
     "version_policy.py": "1ec768f0dcef09d531ba640afe87204217c022e528ba8048e9445e6a6b3d76d6"
   },
-  "payload_sha256": "0a534390f6e8e1b33ed95945596c6d906907ec1e48caff26ea96b52fb4c06191",
+  "payload_sha256": "b8d9f359810074d781dea07297711d5c5a6cb73de15853a92856ca19487d4123",
   "schema_version": 2,
   "toolkit_name": "h2h-dev-tools",
   "toolkit_version": "0.3.0"
