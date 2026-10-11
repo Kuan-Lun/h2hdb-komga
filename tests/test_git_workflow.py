@@ -66,6 +66,11 @@ def git_repository(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
         target = repository / filename
         target.parent.mkdir(exist_ok=True)
         shutil.copy2(_PROJECT_ROOT / filename, target)
+    shutil.copytree(
+        _PROJECT_ROOT / "scripts/_shared",
+        repository / "scripts/_shared",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
     _commit(repository, "seed")
     _git(repository, "push", "-u", "origin", primary)
     _install(repository)
@@ -101,7 +106,7 @@ def test_installer_repairs_unsafe_settings_on_each_run(git_repository: Path) -> 
     }
     for unsafe_rebase in ("true", "merges"):
         for key, value in {
-            "core.hooksPath": "missing",
+            "core.hooksPath": ".githooks",
             f"branch.{primary}.mergeOptions": "--ff",
             "pull.rebase": "true",
             f"branch.{primary}.rebase": unsafe_rebase,

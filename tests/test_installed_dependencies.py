@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import runpy
+import importlib
+import sys
 import tomllib
 from collections.abc import Callable
 from importlib.metadata import Distribution, version
@@ -14,12 +15,10 @@ from packaging.requirements import Requirement
 
 
 def _checker() -> Callable[[Distribution], dict[str, str]]:
-    namespace = runpy.run_path(
-        str(Path(__file__).parents[1] / "scripts" / "smoke-installed-dependencies.py")
-    )
+    sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
+    module = importlib.import_module("_shared.h2h_dev_tools.distribution_check")
     return cast(
-        Callable[[Distribution], dict[str, str]],
-        namespace["check_runtime_requirements"],
+        Callable[[Distribution], dict[str, str]], module.check_runtime_requirements
     )
 
 

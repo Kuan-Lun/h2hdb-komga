@@ -125,6 +125,11 @@ def test_failed_merge_gate_aborts_the_primary_worktree_and_retains_task(
     hooks.mkdir()
     for name in ("detect-primary-branch.sh", "git-flow-merge.sh"):
         shutil.copy2(source_root / "scripts" / name, scripts / name)
+    shutil.copytree(
+        source_root / "scripts/_shared",
+        scripts / "_shared",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
     pre_merge_hook = hooks / "pre-merge-commit"
     pre_merge_hook.write_text("#!/usr/bin/env bash\nexit 42\n", encoding="utf-8")
     pre_merge_hook.chmod(0o755)
