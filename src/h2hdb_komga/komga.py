@@ -1,7 +1,6 @@
 __all__ = ["PATCH_TIMEOUT_SECONDS", "REQUEST_TIMEOUT_SECONDS", "KomgaClient"]
 
-import logging
-from time import monotonic, sleep
+from time import monotonic
 from typing import Any, cast
 
 import requests
@@ -10,8 +9,6 @@ from requests.auth import HTTPBasicAuth
 from .config_loader import KomgaConfig
 from .metadata import KomgaMetadata
 
-logger = logging.getLogger(__name__)
-
 PAGE_SIZE = 500
 # Plain GETs/POSTs should come back quickly -- timeout aggressively rather
 # than hang forever if Komga stops responding mid-run.
@@ -19,11 +16,6 @@ REQUEST_TIMEOUT_SECONDS = 30
 # A 200-book bulk PATCH needs a generous budget: concurrent bulk-PATCH load
 # can slow requests several-fold without Komga actually hanging.
 PATCH_TIMEOUT_SECONDS = 300
-# A single page fetch can fail from a transient Komga-side hiccup (e.g.
-# contention while a scan is still running) -- retrying just that page is far
-# cheaper than re-running the whole paginated listing.
-PAGE_FETCH_RETRY_ATTEMPTS = 3
-PAGE_FETCH_RETRY_DELAY_SECONDS = 5
 
 
 def _bounded_timeout(limit: float, remaining_seconds: float | None) -> float:
@@ -51,39 +43,17 @@ class KomgaClient:
         *,
         deadline: float | None,
     ) -> list[dict[str, Any]]:
-        attempt = 1
-        while True:
-            try:
-                response = self._session.get(
-                    f"{self._base_url}{path}",
-                    params=params,
-                    timeout=_bounded_timeout(
-                        REQUEST_TIMEOUT_SECONDS,
-                        None if deadline is None else deadline - monotonic(),
-                    ),
-                )
-                response.raise_for_status()
-                content: list[dict[str, Any]] = response.json()["content"]
-                return content
-            except requests.exceptions.RequestException as e:
-                is_client_error = (
-                    isinstance(e, requests.exceptions.HTTPError)
-                    and e.response is not None
-                    and e.response.status_code < 500
-                )
-                if is_client_error or attempt >= PAGE_FETCH_RETRY_ATTEMPTS:
-                    raise
-                logger.warning(
-                    "Page fetch %s (page %s) failed (attempt %d/%d): %s; retrying",
-                    path,
-                    params["page"],
-                    attempt,
-                    PAGE_FETCH_RETRY_ATTEMPTS,
-                    e,
-                )
-                remaining = None if deadline is None else deadline - monotonic()
-                sleep(_bounded_timeout(PAGE_FETCH_RETRY_DELAY_SECONDS, remaining))
-                attempt += 1
+        response = self._session.get(
+            f"{self._base_url}{path}",
+            params=params,
+            timeout=_bounded_timeout(
+                REQUEST_TIMEOUT_SECONDS,
+                None if deadline is None else deadline - monotonic(),
+            ),
+        )
+        response.raise_for_status()
+        content: list[dict[str, Any]] = response.json()["content"]
+        return content
 
     def _get_library_page(
         self,

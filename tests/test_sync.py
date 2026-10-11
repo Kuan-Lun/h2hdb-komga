@@ -1,4 +1,5 @@
 import fcntl
+import json
 import os
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
@@ -10,12 +11,22 @@ import pytest
 import requests
 from h2hdb import CatalogPublication, CatalogRevision
 
+from h2hdb_komga import komga as client_module
 from h2hdb_komga.config_loader import KomgaConfig
 from h2hdb_komga.coordination import LibraryUnavailable
+from h2hdb_komga.komga import KomgaClient
 from h2hdb_komga.metadata import KomgaMetadata, publication_to_komga_metadata
 from h2hdb_komga.sync import sync_komga_library
 
 from .helpers import FakeCatalogReader, canonical_catalog_artifact
+
+
+def _response(payload: object, status: int = 200) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps(payload).encode("utf-8")
+    response.encoding = "utf-8"
+    return response
 
 
 class FakeClock:
@@ -763,3 +774,69 @@ def test_activation_marker_prevents_sync_before_komga_calls(tmp_path: Path) -> N
 
     assert client.scan_calls == 0
     assert client.book_page_calls == []
+
+
+@pytest.mark.parametrize("failed_listing", ["books", "series"])
+@pytest.mark.parametrize("failure", ["timeout", "server-error"])
+def test_real_client_page_failure_discards_the_entire_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_listing: str,
+    failure: str,
+) -> None:
+    backend = FakeKomgaClient()
+    expected = publication_to_komga_metadata(_publication())
+    backend.books["book-7"]["metadata"] = deepcopy(expected)
+    clock = FakeClock()
+    failed = False
+
+    def get(_session: requests.Session, url: str, **kwargs: Any) -> requests.Response:
+        nonlocal failed
+        if url.endswith(("/books", "/series")):
+            page = int(kwargs["params"]["page"])
+            listing = url.rsplit("/", 1)[1]
+            if (
+                listing == failed_listing
+                and page == 1
+                and backend.book_snapshot_calls == 2
+                and not failed
+            ):
+                failed = True
+                backend.books["book-7"]["metadata"]["title"] = "analysis rewrote title"
+                clock.now += 40
+                if failure == "timeout":
+                    raise requests.exceptions.ReadTimeout("page response lost")
+                return _response({}, 503)
+            items = (
+                backend.get_book_page(page)
+                if listing == "books"
+                else backend.get_series_page(page)
+            )
+            return _response({"content": items})
+        return _response(backend.get_book(url.rsplit("/", 1)[1]))
+
+    def patch(
+        _session: requests.Session, _url: str, **kwargs: Any
+    ) -> requests.Response:
+        backend.patch_books_metadata(kwargs["json"])
+        return _response({}, 204)
+
+    monkeypatch.setattr(requests.Session, "get", get)
+    monkeypatch.setattr(requests.Session, "patch", patch)
+    monkeypatch.setattr(client_module, "monotonic", clock)
+    config = _config(tmp_path, backend, trigger_scan=False)
+    sync_komga_library(
+        config,
+        _reader(7),
+        client=KomgaClient(config),
+        clock=clock,
+        sleep_for=clock.sleep,
+        poll_interval_seconds=1,
+        stable_observation_seconds=10,
+        timeout_seconds=120,
+    )
+
+    assert failed
+    assert backend.books["book-7"]["metadata"] == expected
+    assert backend.patch_calls == [{"book-7": expected}]
+    assert backend.book_snapshot_calls >= 4

@@ -117,6 +117,8 @@ python3.14 -m venv .venv
 `base_url` 是 Komga 的服務網址，不要加 `/api/v1` 或結尾斜線。
 `library_id` 是目標 Komga 書庫的 ID，不是書庫顯示名稱。
 `coordination_root` 使用同步程式能看到的路徑；容器內請使用容器路徑。
+必須是沒有 `..` 的絕對路徑，且每一層都不得是符號連結；請直接填入實際掛載位置，
+不要透過路徑正規化繞過 publication fencing。
 
 在執行命令的環境中提供帳號與密碼：
 
@@ -131,6 +133,7 @@ export KOMGA_API_PASSWORD='replace-with-your-password'
 
 `trigger_scan` 預設為 `true`，會先要求 Komga 掃描及分析書庫。
 只有在 Komga 已完整反映目前書庫、只需要重新同步作品資料時，才設為 `false`。
+分頁請求失敗會使整輪觀察與穩定時間失效；下一輪重新讀取完整書庫後才判定同步完成。
 
 ### H2HDB 連線
 

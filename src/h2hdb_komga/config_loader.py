@@ -1,5 +1,4 @@
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self, cast
@@ -39,10 +38,12 @@ class KomgaConfig:
             raise ValueError("Komga coordination root must be a path")
         if not self.coordination_root.is_absolute():
             raise ValueError("Komga coordination root must be an absolute path")
-        normalized = Path(os.path.abspath(self.coordination_root))
-        if normalized == Path(normalized.anchor):
+        if ".." in self.coordination_root.parts:
+            raise ValueError(
+                "Komga coordination root must not contain parent traversal"
+            )
+        if self.coordination_root == Path(self.coordination_root.anchor):
             raise ValueError("Komga coordination root must not be the filesystem root")
-        object.__setattr__(self, "coordination_root", normalized)
 
     @classmethod
     def from_file(cls, path: str) -> Self:
