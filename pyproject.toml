@@ -93,4 +93,4 @@ module = ["testcontainers.*"]
 ignore_missing_imports = true
 
 [tool.h2h-dev-tools]
-components = ["offline-wheel", "distribution-check", "change-scope", "dependencies", "dependency-audit", "documentation", "environment", "git-flow", "hooks", "primary-branch", "publish-version", "version-policy"]
+components = ["code-review", "offline-wheel", "distribution-check", "change-scope", "dependencies", "dependency-audit", "documentation", "environment", "git-flow", "hooks", "primary-branch", "publish-version", "version-policy"]

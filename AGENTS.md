@@ -39,9 +39,9 @@
 - 工作樹不乾淨時，從 committed primary 建立獨立 worktree。
 - task branch 可包含多個邏輯 Conventional Commits。避免巨大 commit；小而
   內聚的任務仍可只有一個 commit。
-- 任務完成後執行 `scripts/git-flow-merge.sh`。該腳本負責依實際 staged
-  merge candidate 選擇文件或完整 gate、`--no-ff` merge、安全移除 task
-  worktree，以及以 `git branch -d` 刪除已合併的本機 branch。
+- 任務完成後執行 `scripts/git-flow-merge.sh`，先建立 two-parent staged candidate，
+  full profile 通過 Codex code review 後才執行既有 gate 與 `--no-ff` merge。
+  成功後安全移除 task worktree，並以 `git branch -d` 刪除已合併的本機 branch。
 - primary 在任務期間可以推進；整合只要求 primary 與 task branch 有共同
   ancestor，不要求 task branch 仍直接基於目前 primary tip。
 - merge conflict 或 gate failure 時必須 abort merge 並保留 task branch。
@@ -170,6 +170,38 @@
 - GitHub Actions 只呼叫相同 scripts，並保留 trusted publishing、平台特有
   或本機無法可靠重現的檢查。
 - 不使用 Claude、Codex 或其他 provider-specific Stop hooks 重複檢查。
+
+## Code Review Rules
+
+- 每次 task 合併由 `scripts/git-flow-merge.sh` 先建立真正的 two-parent
+  `--no-ff --no-commit` candidate，再依 primary parent 到完整 staged tree 分類。
+  Full profile 在 Git hooks 外執行 `scripts/review-code.py run --index`；
+  documentation profile 不啟動 online review。需要 local `.venv`、PATH 中的
+  `codex` 與已登入服務，不要求 GitHub PR、Actions 或 provider-specific Stop hook。
+- Reviewer 必須完整閱讀本檔，審查完整 candidate 及相關未修改程式的互動，
+  依本 repository 的 ownership、bounded operations、publication fencing 與
+  測試契約判定。只回報有具體觸發條件、影響、檔案及行號的 P0/P1/P2 缺陷；
+  格式交由 lint，不得為相容而違反品質優先政策。
+- Review 使用 read-only sandbox，不得修改檔案、commit、merge、執行 gate、
+  啟動服務或自動修正。合法且已授權的破壞性變更本身不是缺陷；遺漏必要轉換
+  或錯誤版本判定仍須回報。缺少上下文或工具須回報 `incomplete`。
+- 任何 finding、`incomplete`、逾時、非零退出或無效輸出都阻止 merge；失敗須
+  abort merge 並保留 task branch。修正後重跑正常流程，不得手寫 passing receipt。
+  預設期限 900 秒，`run --timeout-seconds` 接受 1..3600 秒。
+- Online review 目前限 POSIX，以獨立 process group 在逾時或中斷時清理 Codex
+  及一般 descendants；刻意脫離 group 的程序不在保證內。Windows 可 offline
+  verify，online review 必須先實作並驗證 Job Object 生命週期。
+- 共用 reviewer 唯一來源是 toolkit 的 `code-review` component。
+  `scripts/review-code.py verify` 只離線驗證 Git common metadata 的 `h2h-review`
+  evidence，綁定 exact tree、ordered parents、本檔、入口與完整 reviewer 實作。
+  `--revision` 可檢查既有 commit；正式整合使用 `--index`。
+- 明確重跑同一 candidate 的 `run` 先廢止舊結果；失敗不得沿用。每個 candidate
+  只允許單一 review owner，重疊 run 與審查中的 POSIX verify 必須拒絕。
+- 既有 pre-merge gate 在 full checks 前後離線 verify 相同 candidate，不能自行
+  連線呼叫模型；pre-commit 對 pending merge 委派同一 gate，不另建第二套 gate。
+  Code review 與測試是不同證據；AI 無 finding 不代表正確性證明，metadata 也非
+  防竄改簽章。保留原始結果、診斷、CLI version 與 model override；未指定 model
+  時沿用 Codex 設定，不聲稱知道 CLI 未回報的解析後模型。
 
 ## 測試與例外
 

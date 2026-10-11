@@ -12,6 +12,7 @@ current="$(git branch --show-current)"
     exit 1
 }
 
+candidate_tree="$(git write-tree)"
 scripts/check-version.py --index
 profile="$(.venv/bin/python scripts/check_change_scope.py --index --base HEAD)"
 case "$profile" in
@@ -19,7 +20,9 @@ case "$profile" in
         exec .venv/bin/python scripts/check-docs.py --index --base HEAD
         ;;
     full)
-        exec scripts/check-full.sh
+        .venv/bin/python scripts/review-code.py verify --index --expected-tree "$candidate_tree"
+        scripts/check-full.sh
+        exec .venv/bin/python scripts/review-code.py verify --index --expected-tree "$candidate_tree"
         ;;
     *)
         printf 'Unknown check profile: %s\n' "$profile" >&2

@@ -130,6 +130,18 @@ def test_failed_merge_gate_aborts_the_primary_worktree_and_retains_task(
         scripts / "_shared",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
+    reviewer = scripts / "review-merge-candidate.sh"
+    reviewer.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    reviewer.chmod(0o755)
+    pre_commit = hooks / "pre-commit"
+    pre_commit.write_text(
+        "#!/usr/bin/env bash\n"
+        "if git rev-parse --verify MERGE_HEAD >/dev/null 2>&1; then\n"
+        "    exec .githooks/pre-merge-commit\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    pre_commit.chmod(0o755)
     pre_merge_hook = hooks / "pre-merge-commit"
     pre_merge_hook.write_text("#!/usr/bin/env bash\nexit 42\n", encoding="utf-8")
     pre_merge_hook.chmod(0o755)
@@ -185,7 +197,9 @@ def test_failed_merge_gate_aborts_the_primary_worktree_and_retains_task(
     )
 
     assert result.returncode != 0
-    assert "merge or merge gate failed; task branch was retained" in result.stderr
+    assert (
+        "merge commit or release gate failed; task branch was retained" in result.stderr
+    )
     assert not _operation_path(
         primary_worktree,
         git_environment,
