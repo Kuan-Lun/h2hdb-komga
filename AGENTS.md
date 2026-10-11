@@ -42,9 +42,14 @@
 - 任務完成後執行 `scripts/git-flow-merge.sh`，先建立 two-parent staged candidate，
   full profile 通過 Codex code review 後才執行既有 gate 與 `--no-ff` merge。
   成功後安全移除 task worktree，並以 `git branch -d` 刪除已合併的本機 branch。
+  實際 merge 使用 repository-local Python 擁有 Git／hook process tree；
+  已整合 task 的 no-op／`--cleanup-only` 不需要 Python 環境。
 - primary 在任務期間可以推進；整合只要求 primary 與 task branch 有共同
   ancestor，不要求 task branch 仍直接基於目前 primary tip。
-- merge conflict 或 gate failure 時必須 abort merge 並保留 task branch。
+- merge conflict 或 gate failure 時，確認 owned review／hook process tree 已清空後
+  必須 abort merge 並保留 task branch。若無法證明 owned process cleanup，這是明確
+  例外：不得讓仍存活的 hook 與 abort 競爭，保留 candidate 與 task 待確認及安全處理。
+  已成功建立的 merge commit 不因後續中斷或清理失敗而回滾。
 - merge 後收到的任何 follow-up 都建立新的 task branch。
 - 本機 task branch、commit、`--no-ff` merge 與 `branch -d` 已獲預先
   授權。
@@ -178,6 +183,25 @@
   Full profile 在 Git hooks 外執行 `scripts/review-code.py run --index`；
   documentation profile 不啟動 online review。需要 local `.venv`、PATH 中的
   `codex` 與已登入服務，不要求 GitHub PR、Actions 或 provider-specific Stop hook。
+- 第一次 code review 必須涵蓋完整 candidate repository，包含未修改的程式、
+  測試、工具與設定；只在已有有效全專案 baseline 後，才審查本次 merge 差異。
+  缺少 baseline 時 `run --index` 自動選擇 `repository` scope；同一 pending
+  candidate 的 passing full-review receipt 可立即供 gate 離線 verify，無須先合併。
+- Review receipt 使用新版 scope 契約：`repository` 或 `incremental`，後者綁定
+  full baseline 的 commit、receipt identity 與 digest；舊版僅有 diff review 的
+  evidence 不得冒充 full baseline。Receipt 與 code-review target 同時綁定 exact
+  tree、ordered parents、本檔、local CLI 與 merge review 入口，以及 shared
+  review shell、reviewer、process、change-scope classifier 與完整匯出
+  dependency closure 的實作。
+- 後續 incremental baseline 只能來自 primary first-parent 歷史中已存在的 commit，
+  其 tree、ordered parents 與有效全專案 receipt 必須完全相符。Review 通過但尚未
+  合併或已 abort 的 candidate、只有側分支可到達的 review，都不能成為此 baseline。
+- Baseline 到 primary 的完整 first-parent coverage chain 必須可驗證：每個非文件
+  commit 具匹配的新版 passing receipt；純文件差異由 exact-tree classifier 證明，
+  不啟動 online review。缺口、損壞或被重新審查廢止的 evidence、policy 或 reviewer
+  實作變更都須重新全專案 review。新 clone 沒有本機 evidence 時同樣重新 full。
+  `verify` 只離線重核 scope、baseline 與 coverage，不會自動呼叫模型或把無效的
+  incremental evidence 改稱 full-review evidence。
 - Reviewer 必須完整閱讀本檔，審查完整 candidate 及相關未修改程式的互動，
   依本 repository 的 ownership、bounded operations、publication fencing 與
   測試契約判定。只回報有具體觸發條件、影響、檔案及行號的 P0/P1/P2 缺陷；
@@ -186,8 +210,10 @@
   啟動服務或自動修正。合法且已授權的破壞性變更本身不是缺陷；遺漏必要轉換
   或錯誤版本判定仍須回報。缺少上下文或工具須回報 `incomplete`。
 - 任何 finding、`incomplete`、逾時、非零退出或無效輸出都阻止 merge；失敗須
-  abort merge 並保留 task branch。修正後重跑正常流程，不得手寫 passing receipt。
+  在 owned process cleanup 已確認後 abort merge 並保留 task branch；cleanup 無法
+  證明時遵循前述保留 candidate 的例外。修正後重跑正常流程，不得手寫 passing receipt。
   預設期限 900 秒，`run --timeout-seconds` 接受 1..3600 秒。
+  Merge 流程可用 `H2H_CODE_REVIEW_TIMEOUT_SECONDS` 明確傳入同一 1..3600 秒上限。
 - Online review 目前限 POSIX，以獨立 process group 在逾時或中斷時清理 Codex
   及一般 descendants；刻意脫離 group 的程序不在保證內。Windows 可 offline
   verify，online review 必須先實作並驗證 Job Object 生命週期。

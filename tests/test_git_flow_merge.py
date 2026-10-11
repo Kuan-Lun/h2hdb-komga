@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -145,6 +146,7 @@ def test_failed_merge_gate_aborts_the_primary_worktree_and_retains_task(
     pre_merge_hook = hooks / "pre-merge-commit"
     pre_merge_hook.write_text("#!/usr/bin/env bash\nexit 42\n", encoding="utf-8")
     pre_merge_hook.chmod(0o755)
+    (primary_worktree / ".gitignore").write_text(".venv/\n", encoding="utf-8")
     (primary_worktree / "payload.txt").write_text("primary\n", encoding="utf-8")
     _git(primary_worktree, git_environment, "add", ".")
     _git(
@@ -170,6 +172,9 @@ def test_failed_merge_gate_aborts_the_primary_worktree_and_retains_task(
         "perf/task",
         str(task_worktree),
     )
+    python = task_worktree / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
     (task_worktree / "payload.txt").write_text("task\n", encoding="utf-8")
     _git(task_worktree, git_environment, "add", "payload.txt")
     _git(

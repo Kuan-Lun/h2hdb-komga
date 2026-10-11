@@ -234,10 +234,41 @@ MariaDB 範例：
 `scripts/check-fast.sh`、`scripts/check-full.sh` 與 `scripts/git-flow-merge.sh`，
 不需要 sibling checkout、安裝共用工具套件或在每次 commit 時連網。
 
+### 合併前審查
+
+先以 `scripts/rebuild-env.sh` 準備本 repository 的 `.venv`，並確認 PATH 中的
+`codex` 已登入可用服務。在 POSIX 環境完成 task branch 的提交後，執行：
+
+```bash
+scripts/git-flow-merge.sh
+```
+
+需要 code review 的合併會先準備真正的 merge candidate。第一次審查整個
+專案；有效的全專案基準合併後，後續才審查本次完整差異及相關程式的互動。
+新 clone 沒有本機審查紀錄，或政策、reviewer 實作與覆蓋紀錄失效時，會重新
+審查整個專案。純文件變更仍由文件 gate 處理。審查與完整檢查都通過後才完成
+merge；完整規則見 [AGENTS.md](AGENTS.md#code-review-rules)。
+
+Review 預設 900 秒；首次全專案審查需要較長時間時，可明確指定最多 3600 秒：
+
+```bash
+H2H_CODE_REVIEW_TIMEOUT_SECONDS=3600 scripts/git-flow-merge.sh
+```
+
+### 更新工具快照
+
 更新時，在獨立工具環境安裝明確選定的 `h2h-dev-tools` wheel 或版本，再執行：
 
 ```bash
 h2h-dev-tools sync --repository /absolute/path/to/this-checkout
+```
+
+若新版本改變 component 的來源檔案集合，提供產生目前快照的舊 wheel，
+讓工具先確認現有檔案確實來自該版本，再更新：
+
+```bash
+h2h-dev-tools sync --repository /absolute/path/to/this-checkout \
+  --previous-wheel /absolute/path/to/previous-h2h-dev-tools.whl
 ```
 
 檢查產生的差異、執行本 repository 的檢查後，將快照與 manifest 一起提交。
