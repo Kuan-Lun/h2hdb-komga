@@ -36,7 +36,7 @@ def check_sqlite_reader() -> None:
         )
         with closing(VNextDatabaseAdminFacade(config)) as admin:
             report = admin.initialize()
-        assert (report.epoch, report.schema_version, report.state) == (3, 9, "READY")
+        assert (report.epoch, report.schema_version, report.state) == (3, 10, "READY")
         read_only = config.model_copy(
             update={
                 "database": config.database.model_copy(
