@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
@@ -17,9 +18,14 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 _REVIEW_ENTRY = r"""from pathlib import Path
 import os
+import runpy
 import sys
 
 sys.dont_write_bytecode = True
+shared_dir = Path(__file__).resolve().parent / "_shared/h2h_dev_tools"
+runpy.run_path(str(shared_dir / "source_loader.py"))["load_package"](
+    shared_dir, "_shared.h2h_dev_tools"
+)
 from _shared.h2h_dev_tools.code_review import main
 
 trace = Path(os.environ["DOCUMENTATION_WORKFLOW_TRACE"])
@@ -99,9 +105,10 @@ def _repository(tmp_path: Path, *, install_hooks: bool = True) -> Path:
     _write(repository, "scripts/review-code.py", _REVIEW_ENTRY)
     _write(repository, ".gitignore", ".venv/\nnode_modules/\n__pycache__/\n")
     _write(repository, "README.md", "# Fixture\n")
-    policy = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+    tools = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "tool"
-    ]["h2h"]["version"]
+    ]
+    policy = tools["h2h"]["version"]
     dedicated_release = str(policy.get("dedicated-release-commit", False)).lower()
     _write(
         repository,
@@ -109,7 +116,10 @@ def _repository(tmp_path: Path, *, install_hooks: bool = True) -> Path:
         '[project]\nname = "workflow-fixture"\nversion = "0.1.0"\n'
         '[tool.h2h.version]\nrelease-paths = ["src/**"]\n'
         f"dedicated-release-commit = {dedicated_release}\n"
-        'development-paths = ["README.md", "docs/**", "tests/**", "scripts/**", "AGENTS.md"]\n',
+        'development-paths = ["README.md", "docs/**", "tests/**", "scripts/**", "AGENTS.md"]\n'
+        + "[tool.h2h-dev-tools]\ncomponents = "
+        + json.dumps(tools["h2h-dev-tools"]["components"])
+        + "\n",
     )
     _write(
         repository,
@@ -411,3 +421,28 @@ def test_repository_release_policy_rejects_invalid_task_version_commits(
     assert _git(repository, "rev-parse", "main") == primary
     assert _git(repository, "branch", "--show-current") == "docs/task"
     assert not (repository / ".git/MERGE_HEAD").exists()
+
+
+def test_merge_message_exemption_requires_a_real_merge(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    before = _git(repository, "rev-parse", "HEAD")
+    _write(repository, "README.md", "# Updated guide\n")
+    _git(repository, "add", "README.md")
+
+    rejected = _run(repository, "git", "commit", "-m", "Merge misleading subject")
+
+    assert rejected.returncode != 0
+    assert "Commit message must follow Conventional Commits" in rejected.stderr
+    assert _git(repository, "rev-parse", "HEAD") == before
+    assert _git(repository, "diff", "--cached", "--name-only") == "README.md"
+    _commit(repository, "docs: update guide")
+    task = _git(repository, "rev-parse", "HEAD")
+
+    merged = _run(repository, "scripts/git-flow-merge.sh")
+
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    assert _git(repository, "show", "-s", "--format=%P", "HEAD").split() == [
+        before,
+        task,
+    ]
+    assert _git(repository, "show", "-s", "--format=%s", "HEAD").startswith("Merge ")

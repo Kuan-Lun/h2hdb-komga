@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-repository_root="$(git rev-parse --show-toplevel)"
-cd "$repository_root"
+cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
 
 [[ -x .venv/bin/ruff ]] || {
     printf 'Missing .venv tooling; run scripts/rebuild-env.sh\n' >&2

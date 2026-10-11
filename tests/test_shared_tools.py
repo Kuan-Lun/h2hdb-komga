@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import os
+import py_compile
 import shlex
 import shutil
 import subprocess
@@ -80,3 +82,42 @@ def test_fast_gate_rejects_damaged_snapshot_before_quality_tools(
         )
         assert expected in result.stderr
         assert not marker.exists()
+
+
+@pytest.mark.parametrize("entrypoint", ("review-code.py", "check-version.py"))
+def test_python_entrypoint_loads_verified_source_despite_cached_bytecode(
+    tmp_path: Path, entrypoint: str
+) -> None:
+    repository = tmp_path / "checkout"
+    repository.mkdir()
+    shutil.copy2(_ROOT / "pyproject.toml", repository / "pyproject.toml")
+    shutil.copytree(
+        _ROOT / "scripts",
+        repository / "scripts",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    poison = tmp_path / "cached.py"
+    poison.write_text("raise AssertionError('unverified bytecode executed')\n")
+    bundle = repository / "scripts/_shared/h2h_dev_tools"
+    for source in bundle.glob("*.py"):
+        cache = Path(importlib.util.cache_from_source(str(source)))
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        py_compile.compile(
+            str(poison),
+            cfile=str(cache),
+            doraise=True,
+            invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+        )
+
+    result = subprocess.run(
+        (sys.executable, str(repository / "scripts" / entrypoint), "--help"),
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "usage:" in result.stdout.lower()
+    assert "unverified bytecode" not in result.stderr

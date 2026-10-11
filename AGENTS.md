@@ -42,9 +42,13 @@
 - 任務完成後執行 `scripts/git-flow-merge.sh`，先建立 two-parent staged candidate，
   full profile 通過 Codex code review 後才執行既有 gate 與 `--no-ff` merge。
   成功後安全移除 task worktree，並以 `git branch -d` 刪除已合併的本機 branch。
-  實際 merge 使用 repository-local Python 擁有 Git／hook／review process tree，
-  review 與 commit 使用真正 staged candidate 匯出的 owner 實作。已整合 task 的
-  no-op／`--cleanup-only` 不需要 Python 環境。
+  所有會修改 Git 狀態的 workflow 階段，包括已整合 task 的 no-op／`--cleanup-only`，
+  都需要 repository-local `.venv`，由 canonical process owner 管理 Git 與 hooks；
+  缺少時先執行 `scripts/rebuild-env.sh`。Review 與 commit 使用真正 staged candidate
+  匯出的 owner 實作。Linked worktree 移除前，須確認仍會保留的 primary checkout
+  具有 local `.venv`，並改用該環境完成剩餘清理。
+  Failure recovery 的每次 abort 或 checkout 各有 10 秒 hard deadline，包含
+  6 秒 process-tree cleanup reserve；abort 失敗時不得繼續 checkout。
 - primary 在任務期間可以推進；整合只要求 primary 與 task branch 有共同
   ancestor，不要求 task branch 仍直接基於目前 primary tip。
 - merge conflict 或 gate failure 時，確認 owned review／hook process tree 已清空後
@@ -184,6 +188,8 @@
   Full profile 在 Git hooks 外執行 `scripts/review-code.py run --index`；
   documentation profile 不啟動 online review。需要 local `.venv`、PATH 中的
   `codex` 與已登入服務，不要求 GitHub PR、Actions 或 provider-specific Stop hook。
+  單次 review 以 `-c notify=[]` 停用外部完成通知；保留使用者的模型、其他工具
+  與安全 hook 設定，不修改全域 Codex 設定。
 - 第一次 code review 必須涵蓋完整 candidate repository，包含未修改的程式、
   測試、工具與設定；只在已有有效全專案 baseline 後，才審查本次 merge 差異。
   缺少 baseline 時 `run --index` 自動選擇 `repository` scope；同一 pending
@@ -241,6 +247,12 @@
 
 ## 測試與例外
 
+- `scripts/pytest-source.py` 是 canonical pytest source 入口，先驗證並載入
+  repository snapshot，再由 toolkit 的 `pytest` component 執行 pytest；每次使用
+  空的私有 bytecode cache 並禁止寫入，xdist workers 使用同一候選 source import root。
+  自動 gate、collection、CI 與手動 deep
+  runner 均使用此入口。直接執行 `pytest` 或 `python -m pytest` 僅為手動便利入口，
+  不提供同等來源驗證保證。既有 profile、process ownership 與 deadline 不變。
 - `backend_specific` 例外必須在個別測試或參數明示，禁止從 module/class
   繼承整批豁免；collection 檢查標記來源，內容是否真正專屬仍須 code review。
 - 可攜的真實 SQL 情境必須共用 registered backend fixture 的同一測試主體，

@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-repository_root="$(git rev-parse --show-toplevel)"
-cd "$repository_root"
+cd -P -- "$(dirname "${BASH_SOURCE[0]}")/.."
+repository_root=$PWD
 
 for executable in .venv/bin/ruff .venv/bin/mypy node_modules/.bin/markdownlint-cli2; do
     [[ -x "$executable" ]] || {
