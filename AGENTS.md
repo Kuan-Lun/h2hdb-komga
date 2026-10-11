@@ -195,6 +195,9 @@
   `codex` 與已登入服務，不要求 GitHub PR、Actions 或 provider-specific Stop hook。
   單次 review 以 `-c notify=[]` 停用外部完成通知；保留使用者的模型、其他工具
   與安全 hook 設定，不修改全域 Codex 設定。
+  使用 CLI 正常持久 session，不強制 `--ephemeral`，讓子代理能解析 parent
+  thread。CLI rollout 依正常機制保留，reviewer 不自動刪除；Git metadata
+  中的原始審查結果、診斷與 exact-candidate evidence 仍各自保留並驗證。
 - 第一次 code review 必須涵蓋完整 candidate repository，包含未修改的程式、
   測試、工具與設定；只在已有有效全專案 baseline 後，才審查本次 merge 差異。
   缺少 baseline 時 `run --index` 自動選擇 `repository` scope；同一 pending
