@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import subprocess
 import sys
 from contextlib import closing
@@ -12,7 +13,12 @@ from tempfile import TemporaryDirectory
 
 # Isolated smoke execution imports only tool sources, never repository runtime src.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _shared.h2h_dev_tools.distribution_check import (
+_SHARED_DIRECTORY = Path(__file__).resolve().parent / "_shared/h2h_dev_tools"
+runpy.run_path(str(_SHARED_DIRECTORY / "source_loader.py"))["load_package"](
+    _SHARED_DIRECTORY, "_shared.h2h_dev_tools"
+)
+
+from _shared.h2h_dev_tools.distribution_check import (  # noqa: E402 -- Load verified snapshot source before importing it.
     check_runtime_requirements,
     check_wheel_origin,
 )
@@ -36,7 +42,7 @@ def check_sqlite_reader() -> None:
         )
         with closing(VNextDatabaseAdminFacade(config)) as admin:
             report = admin.initialize()
-        assert (report.epoch, report.schema_version, report.state) == (3, 9, "READY")
+        assert (report.epoch, report.schema_version, report.state) == (3, 10, "READY")
         read_only = config.model_copy(
             update={
                 "database": config.database.model_copy(

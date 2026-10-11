@@ -39,12 +39,22 @@
 - 工作樹不乾淨時，從 committed primary 建立獨立 worktree。
 - task branch 可包含多個邏輯 Conventional Commits。避免巨大 commit；小而
   內聚的任務仍可只有一個 commit。
-- 任務完成後執行 `scripts/git-flow-merge.sh`。該腳本負責依實際 staged
-  merge candidate 選擇文件或完整 gate、`--no-ff` merge、安全移除 task
-  worktree，以及以 `git branch -d` 刪除已合併的本機 branch。
+- 任務完成後執行 `scripts/git-flow-merge.sh`，先建立 two-parent staged candidate，
+  full profile 通過 Codex code review 後才執行既有 gate 與 `--no-ff` merge。
+  成功後安全移除 task worktree，並以 `git branch -d` 刪除已合併的本機 branch。
+  所有會修改 Git 狀態的 workflow 階段，包括已整合 task 的 no-op／`--cleanup-only`，
+  都需要 repository-local `.venv`，由 canonical process owner 管理 Git 與 hooks；
+  缺少時先執行 `scripts/rebuild-env.sh`。Review 與 commit 使用真正 staged candidate
+  匯出的 owner 實作。Linked worktree 移除前，須確認仍會保留的 primary checkout
+  具有 local `.venv`，並改用該環境完成剩餘清理。
+  Failure recovery 的每次 abort 或 checkout 各有 10 秒 hard deadline，包含
+  6 秒 process-tree cleanup reserve；abort 失敗時不得繼續 checkout。
 - primary 在任務期間可以推進；整合只要求 primary 與 task branch 有共同
   ancestor，不要求 task branch 仍直接基於目前 primary tip。
-- merge conflict 或 gate failure 時必須 abort merge 並保留 task branch。
+- merge conflict 或 gate failure 時，確認 owned review／hook process tree 已清空後
+  必須 abort merge 並保留 task branch。若無法證明 owned process cleanup，這是明確
+  例外：不得讓仍存活的 hook 與 abort 競爭，保留 candidate 與 task 待確認及安全處理。
+  已成功建立的 merge commit 不因後續中斷或清理失敗而回滾。
 - merge 後收到的任何 follow-up 都建立新的 task branch。
 - 本機 task branch、commit、`--no-ff` merge 與 `branch -d` 已獲預先
   授權。
@@ -171,8 +181,78 @@
   或本機無法可靠重現的檢查。
 - 不使用 Claude、Codex 或其他 provider-specific Stop hooks 重複檢查。
 
+## Code Review Rules
+
+- 每次 task 合併由 `scripts/git-flow-merge.sh` 先建立真正的 two-parent
+  `--no-ff --no-commit` candidate，再依 primary parent 到完整 staged tree 分類。
+  Full profile 在 Git hooks 外執行 `scripts/review-code.py run --index`；
+  documentation profile 不啟動 online review。需要 local `.venv`、PATH 中的
+  `codex` 與已登入服務，不要求 GitHub PR、Actions 或 provider-specific Stop hook。
+  單次 review 以 `-c notify=[]` 停用外部完成通知；保留使用者的模型、其他工具
+  與安全 hook 設定，不修改全域 Codex 設定。
+- 第一次 code review 必須涵蓋完整 candidate repository，包含未修改的程式、
+  測試、工具與設定；只在已有有效全專案 baseline 後，才審查本次 merge 差異。
+  缺少 baseline 時 `run --index` 自動選擇 `repository` scope；同一 pending
+  candidate 的 passing full-review receipt 可立即供 gate 離線 verify，無須先合併。
+- Review receipt 使用新版 scope 契約：`repository` 或 `incremental`，後者綁定
+  full baseline 的 commit、receipt identity 與 digest；舊版僅有 diff review 的
+  evidence 不得冒充 full baseline。Receipt 與 code-review target 同時綁定 exact
+  tree、ordered parents、本檔、local CLI 與 merge review 入口，以及 shared
+  review shell、reviewer、process、change-scope classifier 與完整匯出
+  dependency closure 的實作。
+- 後續 incremental baseline 只能來自 primary first-parent 歷史中已存在的 commit，
+  其 tree、ordered parents 與有效全專案 receipt 必須完全相符。Review 通過但尚未
+  合併或已 abort 的 candidate、只有側分支可到達的 review，都不能成為此 baseline。
+- Baseline 到 primary 的完整 first-parent coverage chain 必須可驗證：每個非文件
+  commit 具匹配的新版 passing receipt；純文件差異由 exact-tree classifier 證明，
+  不啟動 online review。缺口、損壞或被重新審查廢止的 evidence、policy 或 reviewer
+  實作變更都須重新全專案 review。新 clone 沒有本機 evidence 時同樣重新 full。
+  `verify` 只離線重核 scope、baseline 與 coverage，不會自動呼叫模型或把無效的
+  incremental evidence 改稱 full-review evidence。
+- Reviewer 必須完整閱讀本檔，審查完整 candidate 及相關未修改程式的互動，
+  依本 repository 的 ownership、bounded operations、publication fencing 與
+  測試契約判定。只回報有具體觸發條件、影響、檔案及行號的 P0/P1/P2 缺陷；
+  格式交由 lint，不得為相容而違反品質優先政策。
+- Review 使用 read-only sandbox，不得修改檔案、commit、merge、執行 gate、
+  啟動服務或自動修正。合法且已授權的破壞性變更本身不是缺陷；遺漏必要轉換
+  或錯誤版本判定仍須回報。缺少上下文或工具須回報 `incomplete`。
+- 任何 finding、`incomplete`、逾時、非零退出或無效輸出都阻止 merge；失敗須
+  在 owned process cleanup 已確認後 abort merge 並保留 task branch；cleanup 無法
+  證明時遵循前述保留 candidate 的例外。修正後重跑正常流程，不得手寫 passing receipt。
+  預設期限 900 秒，`run --timeout-seconds` 接受 1..3600 秒。
+  Merge 流程可用 `H2H_CODE_REVIEW_TIMEOUT_SECONDS` 明確傳入同一 1..3600 秒上限。
+- Online review 目前限 POSIX，以獨立 process group 在逾時或中斷時清理 Codex
+  及一般 descendants；刻意脫離 group 的程序不在保證內。Windows 可 offline
+  verify，online review 必須先實作並驗證 Job Object 生命週期。
+- Merge 的 review stage 先以獨立 owned process group 完成分類；確認該組清空
+  後，只有 full profile 才取得 candidate target lock 並啟動 reviewer。純文件
+  不要求 local review 入口或 Codex。CLI version preflight、reviewer 與 Codex
+  由外部 owner 管理同一 process group；reviewer 驗證 parent PID、group leader
+  及 candidate owner execution closure 後才共用 ownership。不得另外建立
+  逃出該 owner 的 Codex session。Standalone review 自行管理 CLI version 與
+  Codex command groups。
+- 共用 reviewer 唯一來源是 toolkit 的 `code-review` component。
+  `scripts/review-code.py verify` 只離線驗證 Git common metadata 的 `h2h-review`
+  evidence，綁定 exact tree、ordered parents、本檔、入口與完整 reviewer 實作。
+  `--revision` 可檢查既有 commit；正式整合使用 `--index`。
+- Passing evidence 只能在 reviewer owned process tree 已確認清空後發布；
+  cleanup 失敗不得留下可重用的 passing evidence。
+- 明確重跑同一 candidate 的 `run` 先廢止舊結果；失敗不得沿用。每個 candidate
+  只允許單一 review owner，重疊 run 與審查中的 POSIX verify 必須拒絕。
+- 既有 pre-merge gate 在 full checks 前後離線 verify 相同 candidate，不能自行
+  連線呼叫模型；pre-commit 對 pending merge 委派同一 gate，不另建第二套 gate。
+  Code review 與測試是不同證據；AI 無 finding 不代表正確性證明，metadata 也非
+  防竄改簽章。保留原始結果、診斷、CLI version 與 model override；未指定 model
+  時沿用 Codex 設定，不聲稱知道 CLI 未回報的解析後模型。
+
 ## 測試與例外
 
+- `scripts/pytest-source.py` 是 canonical pytest source 入口，先驗證並載入
+  repository snapshot，再由 toolkit 的 `pytest` component 執行 pytest；每次使用
+  空的私有 bytecode cache 並禁止寫入，xdist workers 使用同一候選 source import root。
+  自動 gate、collection、CI 與手動 deep
+  runner 均使用此入口。直接執行 `pytest` 或 `python -m pytest` 僅為手動便利入口，
+  不提供同等來源驗證保證。既有 profile、process ownership 與 deadline 不變。
 - `backend_specific` 例外必須在個別測試或參數明示，禁止從 module/class
   繼承整批豁免；collection 檢查標記來源，內容是否真正專屬仍須 code review。
 - 可攜的真實 SQL 情境必須共用 registered backend fixture 的同一測試主體，
@@ -289,6 +369,14 @@ schema。
   自建 catalog facade 必須在 sync 成功或失敗後 finally 關閉。
   Outer process supervisor 必須維持 wall-clock hard
   deadline，即使 socket、database gate 或 thread 不合作也能終止 worker。
+  Supervisor 同時擁有 worker 與每次執行的 snapshot workspace；收到
+  SIGTERM、SIGINT 或 SIGHUP 時停止同步，先給 worker 1 秒 terminate grace，
+  必要時 kill 並以 1 秒期限確認退出及回收，再刪除 workspace。Hard deadline
+  到期亦使用相同 cleanup；這兩秒為停止後的 cleanup reserve，不是額外同步時間。
+  重複訊號不得打斷 cleanup，無法確認退出時保留 workspace 並回報失敗。
+  OS 無法確認 worker 退出時，multiprocessing 的 interpreter shutdown 仍可能
+  等待該 worker；此 fail-closed 例外不保證 supervisor 能在期限內正常退出。
+  SIGKILL 等無法攔截的 supervisor 強制終止不提供 cleanup 保證。
 
 ### Verification
 

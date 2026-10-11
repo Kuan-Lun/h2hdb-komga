@@ -23,10 +23,13 @@ class LibraryUnavailable(RuntimeError):
 
 def _open_directory_without_symlinks(path: Path) -> int:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    normalized = Path(os.path.abspath(path))
-    descriptor = os.open(normalized.anchor, flags)
+    if not path.is_absolute() or ".." in path.parts or path == Path(path.anchor):
+        raise OSError(
+            errno.EINVAL, "coordination root must be absolute without traversal"
+        )
+    descriptor = os.open(path.anchor, flags)
     try:
-        for component in normalized.parts[1:]:
+        for component in path.parts[1:]:
             next_descriptor = os.open(component, flags, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = next_descriptor

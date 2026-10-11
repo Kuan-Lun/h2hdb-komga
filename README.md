@@ -46,8 +46,10 @@ H2HDB 資料庫與 Komga 讀取的 CBZ 必須屬於同一個已發佈書庫。
 Komga 顯示名稱可以省略 `.cbz`。不要手動改成純數字、帶標題或雜湊的檔名。
 目標 Komga 書庫必須完整對應已發佈的 H2HDB 書庫，不能混入其他作品。
 
-本 checkout 的 Core 依賴範圍為 `h2hdb>=0.43.0,<0.46.0`，
-需要 epoch 3／schema version 9 且狀態為 `READY` 的資料庫。
+本 checkout 的 Core 依賴範圍為 `h2hdb>=0.46.0,<0.47.0`，
+需要 epoch 3／schema version 10 且狀態為 `READY` 的資料庫。
+Schema 9 須在所有 consumers 停止後，以 Core 0.46.0 的一次性離線工具
+`upgrade-download-handoff-schema.py` 轉成 schema 10；catalog、CBZ 與 artwork 可保留。
 已有舊書庫時，先依 [H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
 確認適用的轉換方式；本工具不會自動升級或建立資料庫。
 已相容的書庫可沿用既有資料庫與 CBZ，不需要因安裝本工具重建書庫。
@@ -115,6 +117,8 @@ python3.14 -m venv .venv
 `base_url` 是 Komga 的服務網址，不要加 `/api/v1` 或結尾斜線。
 `library_id` 是目標 Komga 書庫的 ID，不是書庫顯示名稱。
 `coordination_root` 使用同步程式能看到的路徑；容器內請使用容器路徑。
+必須是沒有 `..` 的絕對路徑，且每一層都不得是符號連結；請直接填入實際掛載位置，
+不要透過路徑正規化繞過 publication fencing。
 
 在執行命令的環境中提供帳號與密碼：
 
@@ -129,6 +133,7 @@ export KOMGA_API_PASSWORD='replace-with-your-password'
 
 `trigger_scan` 預設為 `true`，會先要求 Komga 掃描及分析書庫。
 只有在 Komga 已完整反映目前書庫、只需要重新同步作品資料時，才設為 `false`。
+分頁請求失敗會使整輪觀察與穩定時間失效；下一輪重新讀取完整書庫後才判定同步完成。
 
 ### H2HDB 連線
 
@@ -183,7 +188,7 @@ MariaDB 範例：
 不會只挑其中一部分開始同步。H2HDB 和 Komga 同時為空書庫也是有效狀態。
 
 成功前會觀察內容與作品資料持續 30 秒沒有變動，因此即使沒有需要更新的作品，
-命令也不會立即結束。預設整次執行最多一小時，可調整為例如兩小時：
+命令也不會立即結束。預設同步期限是一小時，可調整為例如兩小時：
 
 ```bash
 .venv/bin/python -m h2hdb_komga \
@@ -194,6 +199,13 @@ MariaDB 範例：
 
 結束碼 `0` 代表本次同步完成；非零結束碼代表失敗，請檢查終端機記錄。
 逾時或中斷前可能已有部分作品更新，排除原因後可重新執行完整命令。
+逾時或收到 SIGTERM、SIGINT、SIGHUP 時，supervisor 會停止 worker；先等待
+1 秒正常終止，必要時強制終止並再等待 1 秒確認回收，然後清除此次暫存 snapshot。
+這最多 2 秒是停止後的清理時間。若作業系統無法確認 worker 退出，則保留
+snapshot 並回報失敗；multiprocessing 在關閉時仍可能等待 worker，因此這個
+例外不保證 supervisor 的正常退出期限。確認 worker 已退出後才能人工移除
+其 `h2hdb-komga-snapshot-*` 暫存目錄。直接強制終止 supervisor（SIGKILL）也
+無法保證清理，排程應先傳送 SIGTERM 並等待結束。
 若加入排程，請使用 Python 與設定檔的絕對路徑，並在排程環境提供所需變數。
 同步期間會阻止 ingest 切換書庫，安排時間時請考慮整次同步所需時間。
 
@@ -234,10 +246,41 @@ MariaDB 範例：
 `scripts/check-fast.sh`、`scripts/check-full.sh` 與 `scripts/git-flow-merge.sh`，
 不需要 sibling checkout、安裝共用工具套件或在每次 commit 時連網。
 
+### 合併前審查
+
+先以 `scripts/rebuild-env.sh` 準備本 repository 的 `.venv`，並確認 PATH 中的
+`codex` 已登入可用服務。在 POSIX 環境完成 task branch 的提交後，執行：
+
+```bash
+scripts/git-flow-merge.sh
+```
+
+需要 code review 的合併會先準備真正的 merge candidate。第一次審查整個
+專案；有效的全專案基準合併後，後續才審查本次完整差異及相關程式的互動。
+新 clone 沒有本機審查紀錄，或政策、reviewer 實作與覆蓋紀錄失效時，會重新
+審查整個專案。純文件變更仍由文件 gate 處理。審查與完整檢查都通過後才完成
+merge；完整規則見 [AGENTS.md](AGENTS.md#code-review-rules)。
+
+Review 預設 900 秒；首次全專案審查需要較長時間時，可明確指定最多 3600 秒：
+
+```bash
+H2H_CODE_REVIEW_TIMEOUT_SECONDS=3600 scripts/git-flow-merge.sh
+```
+
+### 更新工具快照
+
 更新時，在獨立工具環境安裝明確選定的 `h2h-dev-tools` wheel 或版本，再執行：
 
 ```bash
 h2h-dev-tools sync --repository /absolute/path/to/this-checkout
+```
+
+若新版本改變 component 的來源檔案集合，提供產生目前快照的舊 wheel，
+讓工具先確認現有檔案確實來自該版本，再更新：
+
+```bash
+h2h-dev-tools sync --repository /absolute/path/to/this-checkout \
+  --previous-wheel /absolute/path/to/previous-h2h-dev-tools.whl
 ```
 
 檢查產生的差異、執行本 repository 的檢查後，將快照與 manifest 一起提交。

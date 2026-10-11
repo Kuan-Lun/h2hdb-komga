@@ -80,3 +80,26 @@ def test_shared_publication_lock_is_released_on_context_exit(tmp_path: Path) -> 
         fcntl.flock(descriptor, fcntl.LOCK_UN)
     finally:
         os.close(descriptor)
+
+
+@pytest.mark.parametrize("active_marker", [False, True])
+def test_parent_traversal_does_not_bypass_publication_fencing(
+    tmp_path: Path, *, active_marker: bool
+) -> None:
+    decoy = tmp_path / "decoy"
+    actual = tmp_path / "actual"
+    for root in (decoy, actual):
+        (root / "coordination").mkdir(parents=True)
+        (root / "coordination" / "publication.lock").touch()
+    (actual / "child").mkdir()
+    (decoy / "link").symlink_to(actual / "child", target_is_directory=True)
+    unsafe = decoy / "link" / ".." / "coordination"
+    assert unsafe.resolve() == actual / "coordination"
+    with (actual / "coordination" / "publication.lock").open("rb") as locked:
+        if active_marker:
+            (actual / "coordination" / "ACTIVATING").touch()
+        else:
+            fcntl.flock(locked, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(LibraryUnavailable):
+            with LibraryReadCoordinator(unsafe).read():
+                pytest.fail("parent traversal selected an unfenced decoy root")

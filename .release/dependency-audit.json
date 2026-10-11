@@ -1,15 +1,16 @@
 {
-  "checked_at": "2026-09-28T12:04:02+00:00",
-  "manifest_sha256": "384a2436c6c6df46062ceaa07c8c97f2d899fb1d458bb2e59df0c2d89bccca4d",
+  "checked_at": "2026-10-11T12:11:29+00:00",
+  "manifest_sha256": "2863aab68cf5a47793718360e235a486a9c6e7a1946b467a644669feab85a2f6",
   "node": [
     {
       "declared": ">=0.23.2",
       "latest": "0.23.3",
       "latest_satisfies": true,
-      "name": "markdownlint-cli2"
+      "name": "markdownlint-cli2",
+      "registry_url": "https://www.npmjs.com/package/markdownlint-cli2"
     }
   ],
-  "project_version": "0.18.2",
+  "project_version": "0.19.0",
   "python": [
     {
       "declared": "hatchling>=1.32.0",
@@ -18,15 +19,19 @@
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/hatchling/",
+      "release_notes": "https://hatch.pypa.io/dev/history/hatchling/",
       "url": "https://pypi.org/project/hatchling/"
     },
     {
-      "declared": "h2hdb>=0.43.0,<0.46.0",
+      "declared": "h2hdb>=0.46.0,<0.47.0",
       "group": "runtime",
-      "latest": "0.44.0",
-      "latest_satisfies": true,
+      "latest": "0.45.9",
+      "latest_satisfies": false,
       "name": "h2hdb",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/h2hdb/",
+      "release_notes": null,
       "url": "https://pypi.org/project/h2hdb/"
     },
     {
@@ -36,6 +41,8 @@
       "latest_satisfies": true,
       "name": "requests",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/requests/",
+      "release_notes": null,
       "url": "https://pypi.org/project/requests/"
     },
     {
@@ -45,6 +52,8 @@
       "latest_satisfies": true,
       "name": "build",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/build/",
+      "release_notes": "https://build.pypa.io/en/stable/changelog.html",
       "url": "https://pypi.org/project/build/"
     },
     {
@@ -54,24 +63,30 @@
       "latest_satisfies": true,
       "name": "hatchling",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/hatchling/",
+      "release_notes": "https://hatch.pypa.io/dev/history/hatchling/",
       "url": "https://pypi.org/project/hatchling/"
     },
     {
       "declared": "ruff>=0.16.4",
       "group": "optional:dev",
-      "latest": "0.16.9",
+      "latest": "0.17.0",
       "latest_satisfies": true,
       "name": "ruff",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/ruff/",
+      "release_notes": "https://github.com/astral-sh/ruff/blob/main/CHANGELOG.md",
       "url": "https://pypi.org/project/ruff/"
     },
     {
       "declared": "mypy>=2.3.1",
       "group": "optional:dev",
-      "latest": "2.3.1",
+      "latest": "2.4.0",
       "latest_satisfies": true,
       "name": "mypy",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/mypy/",
+      "release_notes": "https://github.com/python/mypy/blob/master/CHANGELOG.md",
       "url": "https://pypi.org/project/mypy/"
     },
     {
@@ -81,6 +96,8 @@
       "latest_satisfies": true,
       "name": "packaging",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/packaging/",
+      "release_notes": null,
       "url": "https://pypi.org/project/packaging/"
     },
     {
@@ -90,11 +107,24 @@
       "latest_satisfies": true,
       "name": "pytest",
       "python_3_14": true,
+      "registry_url": "https://pypi.org/project/pytest/",
+      "release_notes": "https://docs.pytest.org/en/stable/changelog.html",
       "url": "https://pypi.org/project/pytest/"
+    },
+    {
+      "declared": "testcontainers>=4.15.0",
+      "group": "optional:dev",
+      "latest": "4.15.0",
+      "latest_satisfies": true,
+      "name": "testcontainers",
+      "python_3_14": true,
+      "registry_url": "https://pypi.org/project/testcontainers/",
+      "release_notes": null,
+      "url": "https://pypi.org/project/testcontainers/"
     }
   ],
   "review": {
-    "note": "Reviewed all direct build, runtime, development and Node registry candidates, including versions outside the declared bounds, against the prior 0.18.1 receipt. Every non-Core latest version, Python 3.14 support result and declaration remains unchanged; prior official release-note reviews retained in Git history remain applicable. Registry discovery is the response from https://pypi.org/pypi/h2hdb/json at checked_at, not an assertion that every package-index surface agrees. The user-provided NAS build independently selected Core 0.45.0 metadata. This candidate is explicitly the local Core 0.45.0 wheel SHA256 255180d5bd152b4744a6f3932f354e110e6b621c86f211854978780089ffc8ba from merged Core 0ec9a49d0c676ac9057111f85adf50e121384e27, rather than a registry installation claim. Reviewed that exact Core diff: the bounded internal analysis query and SQL telemetry schema 2 retain database epoch 3/schema 9 and the public readonly catalog APIs consumed by Komga. Komga imports public Core values and facades only and does not parse the changed telemetry format. Normal uv dependency resolution installed the explicit Core wheel with the editable consumer and development dependencies; uv pip check passed. 43 focused tests passed with Core 0.45.0, covering installed requirements, accepted and rejected version boundaries, actual schema-9 SQLite readonly CLI startup, old and unfinished schema rejection, and public metadata mapping. The functional fast gate passed. The supported range is >=0.43.0,<0.46.0: retained 0.43/0.44 evidence is documented by the 0.18.1 receipt; unverified 0.46 remains rejected. No runtime shim, schema migration or production behavior change was needed. The patch updates metadata, boundary tests and the existing README. Final full merge gate and isolated normally resolved candidate-wheel smoke are separate mandatory checks, not claimed by this dependency receipt. No live Komga, browser, account, production or NAS database was accessed.",
+    "note": "The one-time task release is 0.19.0. No catalog-to-Komga mapping or remote Komga behavior was changed. Forty focused installed-metadata, version-boundary and CLI cases passed on SQLite; eight matching read-only startup/previous-schema/refusal cases passed on live disposable MariaDB. The fresh installed-wheel smoke checked runtime dependency metadata, origins, CLI help and a real schema10 SQLite read-only catalog open. No live Komga service or remote PATCH was used. Reviewed every direct build, runtime, optional/development and Node candidate against the previous committed receipt, including candidates outside the new bounds. Registry discovery at checked_at reports h2hdb 0.45.9; that schema-9 release is deliberately excluded. The explicitly supplied Core 0.46.0 candidate wheel SHA256 970d14a6188e5f20a62a8fdfd5bddf20a30d139faba923a63c48d48b41b1d571 was reviewed with Core runtime/schema commit 11cf659: schema 10 retains immutable consumption attempts, recovers only an exact expired current ingest generation, keeps old-token fencing and allows the next download after completion. Public facade/receipt call shapes remain unchanged; database compatibility is breaking and requires the Core-provided offline schema-9-to-10 converter. The supported range is >=0.46.0,<0.47.0, rejecting every prior schema lane and the unverified next lane without a runtime shim. Normal uv resolution in a fresh Python 3.14 venv installed the explicit consumer and Core wheels with all development extras; pip check passed. Actual installed versions, direct wheel origins, runtime bytes and METADATA were checked against both artifacts. Ruff 0.17.0 official notes (https://github.com/astral-sh/ruff/releases/tag/0.17.0) change implicit defaults; explicit py314 target and configured rules remain authoritative. Mypy 2.4.0 (https://mypy.readthedocs.io/en/stable/changelog.html) was exercised by the unmodified strict fast gate. Testcontainers 4.15.0 (https://github.com/testcontainers/testcontainers-python/releases/tag/testcontainers-v4.15.0) adds the CrateDB module and preserves the tested disposable MariaDB use. All other unchanged candidate versions retain the prior upstream review evidence. The new complete fast gate passed without rule relaxation. These checks do not claim index-backed deployment, full merge review, the automatic release gate, complete deep matrices, live accounts or production validation. No push, publish or deployment was performed.",
     "status": "reviewed"
   },
   "schema": "h2h.dependency-audit.v1"

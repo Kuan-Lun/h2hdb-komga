@@ -170,3 +170,40 @@ def test_credentials_are_excluded_from_config_repr() -> None:
 
     assert "private-user" not in rendered
     assert "private-password" not in rendered
+
+
+@pytest.mark.parametrize("from_json", [False, True])
+def test_coordination_parent_traversal_cannot_select_a_decoy(
+    tmp_path: Path, *, from_json: bool
+) -> None:
+    decoy = tmp_path / "decoy"
+    actual = tmp_path / "actual"
+    for root in (decoy, actual):
+        (root / "coordination").mkdir(parents=True)
+        (root / "coordination" / "publication.lock").touch()
+    (actual / "child").mkdir()
+    (actual / "coordination" / "ACTIVATING").touch()
+    (decoy / "link").symlink_to(actual / "child", target_is_directory=True)
+    unsafe = decoy / "link" / ".." / "coordination"
+    assert unsafe.resolve() == actual / "coordination"
+    with pytest.raises(ValueError, match="parent traversal"):
+        if from_json:
+            KomgaConfig.from_file(
+                str(
+                    _write_config(
+                        tmp_path,
+                        api_username="user",
+                        api_password="password",
+                        coordination_root=str(unsafe),
+                    )
+                )
+            )
+        else:
+            KomgaConfig(
+                base_url="https://komga.invalid",
+                api_username="user",
+                api_password="password",
+                library_id="library-1",
+                coordination_root=unsafe,
+                trigger_scan=True,
+            )
