@@ -252,3 +252,8 @@ h2h-dev-tools sync --repository /absolute/path/to/this-checkout
 
 本專案由 [Kuan-Lun Wang](https://www.klwang.tw/home/) 建立，採用
 GNU General Public License v3.0，詳見 [LICENSE](LICENSE)。
+
+完整 gate 的 wheel smoke 由共用 `offline-wheel` 機制建立暫存環境，
+各 repository 保留自己的驗證 callback。候選 wheel 使用新的隔離 Python，
+依賴則明確借用本 repository 的 development site；這項離線 artifact 驗證
+不代表已通過乾淨環境的套件解析或正式部署組合驗收。
