@@ -43,9 +43,8 @@
   full profile 通過 Codex code review 後才執行既有 gate 與 `--no-ff` merge。
   成功後安全移除 task worktree，並以 `git branch -d` 刪除已合併的本機 branch。
   實際 merge 使用 repository-local Python 擁有 Git／hook／review process tree，
-  包含 review 前置分類與 Codex CLI 探測；review 與 commit 使用真正 staged
-  candidate 匯出的 owner 實作。已整合 task 的 no-op／`--cleanup-only` 不需要
-  Python 環境。
+  review 與 commit 使用真正 staged candidate 匯出的 owner 實作。已整合 task 的
+  no-op／`--cleanup-only` 不需要 Python 環境。
 - primary 在任務期間可以推進；整合只要求 primary 與 task branch 有共同
   ancestor，不要求 task branch 仍直接基於目前 primary tip。
 - merge conflict 或 gate failure 時，確認 owned review／hook process tree 已清空後
@@ -219,6 +218,13 @@
 - Online review 目前限 POSIX，以獨立 process group 在逾時或中斷時清理 Codex
   及一般 descendants；刻意脫離 group 的程序不在保證內。Windows 可 offline
   verify，online review 必須先實作並驗證 Job Object 生命週期。
+- Merge 的 review stage 先以獨立 owned process group 完成分類；確認該組清空
+  後，只有 full profile 才取得 candidate target lock 並啟動 reviewer。純文件
+  不要求 local review 入口或 Codex。CLI version preflight、reviewer 與 Codex
+  由外部 owner 管理同一 process group；reviewer 驗證 parent PID、group leader
+  及 candidate owner execution closure 後才共用 ownership。不得另外建立
+  逃出該 owner 的 Codex session。Standalone review 自行管理 CLI version 與
+  Codex command groups。
 - 共用 reviewer 唯一來源是 toolkit 的 `code-review` component。
   `scripts/review-code.py verify` 只離線驗證 Git common metadata 的 `h2h-review`
   evidence，綁定 exact tree、ordered parents、本檔、入口與完整 reviewer 實作。
