@@ -241,6 +241,11 @@ snapshot 並回報失敗；multiprocessing 在關閉時仍可能等待 worker，
 
 ## 共用開發工具
 
+環境重建使用 `uv>=0.13.0`。`scripts/rebuild-env.sh` 將本 repository 以
+editable 模式安裝；明確傳入的 `--source 套件名=/absolute/path/to/source`
+依賴則採一般安裝，由正常 dependency resolution 建置 wheel，執行時不讀取
+該依賴的 source checkout。亦可傳入 candidate wheel；重建不使用 lockfile。
+
 `scripts/_shared/h2h_dev_tools/` 是由獨立 `h2h-dev-tools` 專案產生並提交的
 工具快照，包含版本與逐檔雜湊；不要直接修改。一般開發仍使用
 `scripts/check-fast.sh`、`scripts/check-full.sh` 與 `scripts/git-flow-merge.sh`，
