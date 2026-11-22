@@ -22,6 +22,8 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
+    # Static analysis also checks the Windows fixture launcher on POSIX.
+    "distlib>=0.4.4",
     "build>=1.5.0",
     "hatchling>=1.32.0",
     "ruff>=0.16.4",
@@ -94,4 +96,4 @@ module = ["testcontainers.*"]
 ignore_missing_imports = true
 
 [tool.h2h-dev-tools]
-components = ["code-review", "offline-wheel", "distribution-check", "change-scope", "dependencies", "dependency-audit", "documentation", "environment", "git-environment", "pytest", "git-flow", "hooks", "primary-branch", "publish-version", "version-policy"]
+components = ["code-review", "offline-wheel", "distribution-check", "change-scope", "dependencies", "dependency-audit", "documentation", "environment", "git-environment", "pytest", "git-flow", "hooks", "primary-branch", "publish-version", "version-policy", "test-support", "review-test-support"]

@@ -12,4 +12,8 @@ runpy.run_path(str(_SHARED_DIRECTORY / "source_loader.py"))["load_package"](
 from _shared.h2h_dev_tools.pytest_source import main  # noqa: E402 -- Load verified snapshot source before importing it.
 
 if __name__ == "__main__":
-    main()
+    main(
+        runtime_sources={
+            "h2hdb_komga": Path(__file__).resolve().parents[1] / "src/h2hdb_komga"
+        }
+    )

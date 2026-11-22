@@ -51,6 +51,9 @@ def _checkout(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         scripts / "_shared",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
+    runtime = root / "src/h2hdb_komga"
+    runtime.mkdir(parents=True)
+    (runtime / "__init__.py").write_text("")
     configuration = tomllib.loads((_ROOT / "pyproject.toml").read_text())
     components = configuration["tool"]["h2h-dev-tools"]["components"]
     (root / "pyproject.toml").write_text(
