@@ -9,7 +9,7 @@ from time import monotonic, sleep
 
 import pytest
 
-from h2hdb_komga import __main__ as cli
+from h2hdb_komga import cli
 
 _PROBE = r"""
 import json
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from time import sleep
 
-from h2hdb_komga.__main__ import _run_process_with_hard_timeout
+from h2hdb_komga.cli import _run_process_with_hard_timeout
 from h2hdb_komga.config_loader import KomgaConfig
 from h2hdb_komga.sync import sync_komga_library
 
