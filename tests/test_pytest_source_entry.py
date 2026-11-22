@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import py_compile
@@ -66,7 +67,7 @@ def _checkout(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     # Warm the real pytest assertion-rewrite cache using a previous conftest
     # without a bootstrap, then restore equal-size source with the same mtime.
     previous = "# prior conftest without snapshot bootstrap\n"
-    conftest.write_text(previous + " " * (len(_BOOTSTRAP) - len(previous)))
+    conftest.write_text(previous + " " * (len(_BOOTSTRAP) - len(previous)), newline="")
     timestamp = conftest.stat().st_mtime_ns
     environment = {
         name: value
@@ -79,9 +80,17 @@ def _checkout(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     )
     warmup = _run(root, environment, "-m", "pytest", "-p", "no:cacheprovider", "-q")
     assert warmup.returncode == 0, warmup.stdout + warmup.stderr
-    assert list((tests / "__pycache__").glob("conftest.*-pytest-*.pyc"))
-    conftest.write_text(_BOOTSTRAP)
+    (cache,) = (tests / "__pycache__").glob("conftest.*-pytest-*.pyc")
+    conftest.write_text(_BOOTSTRAP, newline="")
     os.utime(conftest, ns=(timestamp, timestamp))
+    # Match the current source header while retaining the old conftest bytecode.
+    # Recent pytest versions validate a source hash instead of size and mtime.
+    bytecode = cache.read_bytes()
+    flags = int.from_bytes(bytecode[4:8], "little")
+    assert flags in {0, 1, 3}
+    if flags & 1:
+        source_hash = importlib.util.source_hash(conftest.read_bytes())
+        cache.write_bytes(bytecode[:8] + source_hash + bytecode[16:])
     (tests / "test_candidate.py").write_text(_TEST)
 
     module = scripts / "_shared/h2h_dev_tools/version_policy.py"

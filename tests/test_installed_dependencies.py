@@ -38,7 +38,7 @@ def test_installed_metadata_accepts_actual_core_and_ignores_inactive_markers(
 ) -> None:
     package = _metadata(
         tmp_path,
-        ("h2hdb>=0.46.0,<0.47.0", "missing-inactive-package; python_version < '3.14'"),
+        ("h2hdb>=0.45.9,<0.46.0", "missing-inactive-package; python_version < '3.14'"),
     )
     assert _checker()(package) == {"h2hdb": version("h2hdb")}
 
