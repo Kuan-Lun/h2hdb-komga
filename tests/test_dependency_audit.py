@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import runpy
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from pytest import MonkeyPatch
 
 AuditNode = Callable[[str, str], dict[str, object]]
+_NPM_LAUNCHER = "/synthetic/npm"
 
 
 def _audit_node(monkeypatch: MonkeyPatch) -> AuditNode:
@@ -23,6 +25,11 @@ def _install_npm_fake(
     monkeypatch: MonkeyPatch,
     payloads: list[object],
 ) -> list[tuple[str, ...]]:
+    def fake_which(command: str) -> str:
+        assert command == "npm"
+        return _NPM_LAUNCHER
+
+    monkeypatch.setattr(shutil, "which", fake_which)
     responses = iter(payloads)
     calls: list[tuple[str, ...]] = []
 
@@ -51,9 +58,9 @@ def test_node_audit_proves_latest_satisfies_declared_range(
     assert result["latest"] == "0.23.2"
     assert result["latest_satisfies"] is True
     assert calls == [
-        ("npm", "view", "markdownlint-cli2", "version", "--json"),
+        (_NPM_LAUNCHER, "view", "markdownlint-cli2", "version", "--json"),
         (
-            "npm",
+            _NPM_LAUNCHER,
             "view",
             "markdownlint-cli2@>=0.23.1",
             "version",

@@ -1,10 +1,16 @@
+import io
+import json
 import multiprocessing
-from contextlib import closing
+import os
+import subprocess
+import sys
+from contextlib import closing, redirect_stderr, redirect_stdout
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any
 
 import pytest
+from _shared.h2h_dev_tools import process as owned_process
 from h2hdb import (
     CatalogReader,
     CatalogRevisionNotFoundError,
@@ -14,10 +20,69 @@ from h2hdb import (
     VNextDatabaseAdminFacade,
 )
 
-from h2hdb_komga import __main__ as cli
-from h2hdb_komga import config_loader
+from h2hdb_komga import cli, config_loader
 from h2hdb_komga.config_loader import KomgaConfig
 from tests.database_support import DatabaseCase
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ([], "Komga configuration must be a JSON object"),
+        ({}, "Komga API username must be a non-empty string"),
+    ],
+)
+def test_module_cli_spawns_worker_and_reports_configuration_error(
+    tmp_path: Path, config: object, message: str
+) -> None:
+    config_path = tmp_path / "komga.json"
+    config_path.write_text(json.dumps(config))
+    temporary = tmp_path / "temporary"
+    temporary.mkdir()
+    output_path = tmp_path / "cli.log"
+    diagnostics = io.StringIO()
+    environment = {
+        **os.environ,
+        "PYTHONPATH": str(Path(cli.__file__).resolve().parents[1]),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TMPDIR": str(temporary),
+        "TMP": str(temporary),
+        "TEMP": str(temporary),
+    }
+    with (
+        output_path.open("wb") as output,
+        redirect_stdout(diagnostics),
+        redirect_stderr(diagnostics),
+    ):
+        status = owned_process.run_command(
+            owned_process.ProcessCommand(
+                "Actual Komga module CLI spawn",
+                (
+                    sys.executable,
+                    "-m",
+                    "h2hdb_komga",
+                    "--komgaconfig",
+                    str(config_path),
+                    "--h2hdbconfig",
+                    str(tmp_path / "never-opened-core.json"),
+                    "--timeout-seconds",
+                    "10",
+                ),
+                cwd=tmp_path,
+                environment=environment,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+            ),
+            hard_deadline=monotonic() + 20,
+            termination_reserve_seconds=6,
+        )
+    output_text = output_path.read_text()
+    assert status == 1, output_text
+    assert message in output_text, output_text
+    assert "AttributeError" not in output_text
+    assert "worker exited with status 1" in output_text
+    assert "owned_tree_empty=True" in diagnostics.getvalue()
+    assert list(temporary.iterdir()) == []
 
 
 @pytest.mark.parametrize("sync_fails", [False, True])
@@ -108,7 +173,7 @@ def test_worker_opens_real_schema_without_mutating_database(
     with closing(VNextDatabaseAdminFacade(core_config)) as admin:
         report = admin.initialize()
     assert report.epoch == 3
-    assert report.schema_version == 10
+    assert report.schema_version == 9
     assert report.state == "READY"
 
     def forbid_full_audit(_admin: VNextDatabaseAdminFacade) -> None:
@@ -160,9 +225,9 @@ def test_worker_opens_real_schema_without_mutating_database(
         (6, "READY", "expected epoch/version"),
         (7, "READY", "expected epoch/version"),
         (8, "READY", "expected epoch/version"),
-        (9, "READY", "expected epoch/version"),
+        (10, "READY", "expected epoch/version"),
         (11, "READY", "expected epoch/version"),
-        (10, "BUILDING", "not READY"),
+        (9, "BUILDING", "not READY"),
     ],
 )
 def test_worker_rejects_incompatible_schema_before_sync_without_mutating_database(

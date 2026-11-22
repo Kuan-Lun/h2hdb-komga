@@ -55,6 +55,9 @@ def test_pytest_entries_do_not_inherit_candidate_git_authority(
         scripts / "_shared",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
+    runtime = repository / "src/h2hdb_komga"
+    runtime.mkdir(parents=True)
+    (runtime / "__init__.py").write_text("")
     components = tomllib.loads((_ROOT / "pyproject.toml").read_text())["tool"][
         "h2h-dev-tools"
     ]["components"]

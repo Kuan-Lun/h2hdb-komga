@@ -46,12 +46,9 @@ H2HDB 資料庫與 Komga 讀取的 CBZ 必須屬於同一個已發佈書庫。
 Komga 顯示名稱可以省略 `.cbz`。不要手動改成純數字、帶標題或雜湊的檔名。
 目標 Komga 書庫必須完整對應已發佈的 H2HDB 書庫，不能混入其他作品。
 
-本 checkout 的 Core 依賴範圍為 `h2hdb>=0.46.0,<0.47.0`，
-需要 epoch 3／schema version 10 且狀態為 `READY` 的資料庫。
-Schema 9 須在所有 consumers 停止後，以 Core 0.46.0 的一次性離線工具
-`upgrade-download-handoff-schema.py` 轉成 schema 10；catalog、CBZ 與 artwork 可保留。
-已有舊書庫時，先依 [H2HDB 的升級說明](https://github.com/Kuan-Lun/h2hdb#readme)
-確認適用的轉換方式；本工具不會自動升級或建立資料庫。
+本版本使用 `h2hdb>=0.45.9,<0.46.0`，需要 epoch 3／schema version 9 且狀態為
+`READY` 的資料庫。已有其他 schema 版本的書庫，請依 [H2HDB 的說明][h2hdb-core]
+選用相符的版本或處理資料庫。本工具不會轉換或建立資料庫。
 已相容的書庫可沿用既有資料庫與 CBZ，不需要因安裝本工具重建書庫。
 
 ### 容器掛載範例
@@ -305,3 +302,5 @@ GNU General Public License v3.0，詳見 [LICENSE](LICENSE)。
 各 repository 保留自己的驗證 callback。候選 wheel 使用新的隔離 Python，
 依賴則明確借用本 repository 的 development site；這項離線 artifact 驗證
 不代表已通過乾淨環境的套件解析或正式部署組合驗收。
+
+[h2hdb-core]: https://github.com/Kuan-Lun/h2hdb#readme

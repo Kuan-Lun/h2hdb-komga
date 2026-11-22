@@ -42,7 +42,7 @@ def check_sqlite_reader() -> None:
         )
         with closing(VNextDatabaseAdminFacade(config)) as admin:
             report = admin.initialize()
-        assert (report.epoch, report.schema_version, report.state) == (3, 10, "READY")
+        assert (report.epoch, report.schema_version, report.state) == (3, 9, "READY")
         read_only = config.model_copy(
             update={
                 "database": config.database.model_copy(
@@ -59,6 +59,37 @@ def check_sqlite_reader() -> None:
                 pass
             else:
                 raise AssertionError("fresh SQLite unexpectedly contains a publication")
+
+
+def check_module_worker() -> None:
+    with TemporaryDirectory(prefix="h2hdb-komga-wheel-cli-") as temporary:
+        workspace = Path(temporary)
+        invalid_config = workspace / "komga.json"
+        invalid_config.write_text("[]", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-m",
+                "h2hdb_komga",
+                "--komgaconfig",
+                str(invalid_config),
+                "--h2hdbconfig",
+                str(workspace / "never-opened-core.json"),
+                "--timeout-seconds",
+                "10",
+            ],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        assert result.returncode == 1, result.stderr
+        assert "Komga configuration must be a JSON object" in result.stderr, (
+            result.stderr
+        )
+        assert "worker exited with status 1" in result.stderr, result.stderr
 
 
 def main() -> None:
@@ -79,12 +110,14 @@ def main() -> None:
         stdout=subprocess.DEVNULL,
     )
     check_sqlite_reader()
+    check_module_worker()
     print(
         json.dumps(
             {
                 "runtime_requirements": requirements,
                 "wheel_origins": origins,
                 "sqlite_read_only": "passed",
+                "module_spawn": "passed",
             }
         ),
         flush=True,

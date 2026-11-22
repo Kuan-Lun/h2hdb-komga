@@ -313,8 +313,9 @@ def test_full_merge_gate_requires_review_before_program_checks(
     assert _checks(repository) == ["verify"]
 
 
-def test_failed_review_aborts_candidate_without_running_full_gate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("failure", ["finding", "nonzero"])
+def test_review_failure_recovers_only_after_normal_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
     repository = _repository(tmp_path)
     _write(repository, "tests/example.py", "value = 1\n")
@@ -322,17 +323,78 @@ def test_failed_review_aborts_candidate_without_running_full_gate(
     primary = _git(repository, "rev-parse", "main")
     task = _git(repository, "rev-parse", "HEAD")
     (repository.parent / "checks.log").write_text("", encoding="utf-8")
-    monkeypatch.setenv("DOCUMENTATION_FAIL_REVIEW", "1")
+    monkeypatch.setenv("DOCUMENTATION_REVIEW_FAILURE", failure)
 
     result = _run(repository, "scripts/git-flow-merge.sh")
 
     assert result.returncode != 0
-    assert "code review failed" in result.stderr
     assert _checks(repository) == ["run"]
     assert _git(repository, "rev-parse", "main") == primary
     assert _git(repository, "rev-parse", "docs/task") == task
-    assert _git(repository, "branch", "--show-current") == "docs/task"
-    assert not (repository / ".git/MERGE_HEAD").exists()
+    metadata = repository / ".git"
+    admission = metadata / "h2h-merge-workflow.lock"
+    review = metadata / "h2h-review"
+    assert not list((review / "receipts").glob("*.json"))
+    if failure == "finding":
+        assert "code review failed" in result.stderr
+        assert "Code review completed with findings" in result.stderr
+        assert _git(repository, "branch", "--show-current") == "docs/task"
+        assert not (metadata / "MERGE_HEAD").exists()
+        assert not admission.exists()
+        assert not list((review / "locks").glob("*.unproven.json"))
+        (run,) = (review / "runs").iterdir()
+        plan = json.loads((run / "plan.json").read_text())
+        stages = [f"shard-{index:04d}" for index in range(len(plan["shards"]))]
+        if len(stages) > 1:
+            stages.append("integration")
+        for stage in stages:
+            document = json.loads((run / stage / "result.json").read_text())
+            assert document["verdict"] == "changes_requested"
+            assert document["findings"]
+    else:
+        assert _git(repository, "branch", "--show-current") == "main"
+        assert _git(repository, "rev-parse", "MERGE_HEAD") == task
+        assert admission.is_dir()
+        (marker,) = (review / "locks").glob("*.unproven.json")
+        retained = json.loads(marker.read_text())
+        assert retained["kind"] == "review-completion-unproven"
+        assert retained["target"]["parents"] == [primary, task]
+        (pending,) = review.glob("pending-*")
+        assert not (pending / "completion.json").exists()
+        diagnostic = json.loads((pending / "completion.json.failure.json").read_text())
+        assert diagnostic["authoritative"] is False
+        assert diagnostic["exit_code"] == 125
+        assert diagnostic["cleanup_state"] == "unknown"
+        assert diagnostic["boundary"] == "code-review-main"
+        assert diagnostic["exceptions"][0]["type"].endswith(".ReviewCompletionUnproven")
+        assert any(
+            error["type"].endswith(".ExecutionError")
+            and "exited with 1" in error["message"]
+            for error in diagnostic["exceptions"]
+        )
+        (run,) = (review / "runs").iterdir()
+        admitted = [path for path in run.glob("shard-*") if path.is_dir()]
+        assert admitted
+        assert not (run / "integration").exists()
+        assert any(
+            "fixture reviewer crashed" in log.read_text()
+            for log in run.glob("shard-*/stderr.log")
+        )
+        assert all(not (shard / "result.json").exists() for shard in admitted)
+
+        marker_bytes = marker.read_bytes()
+        owner_bytes = (admission / "owner.json").read_bytes()
+        candidate_tree = _git(repository, "write-tree")
+        blocked = _run(repository, "scripts/git-flow-merge.sh", "--cleanup-only")
+        assert blocked.returncode != 0
+        assert "admission is already held" in blocked.stderr
+        assert marker.read_bytes() == marker_bytes
+        assert (admission / "owner.json").read_bytes() == owner_bytes
+        assert _git(repository, "write-tree") == candidate_tree
+        assert _git(repository, "rev-parse", "MERGE_HEAD") == task
+        assert _git(repository, "rev-parse", "main") == primary
+        assert _git(repository, "rev-parse", "docs/task") == task
+        assert _checks(repository) == ["run"]
 
 
 @pytest.mark.parametrize("invalidation", ("receipt", "tree"))
@@ -343,6 +405,7 @@ def test_full_merge_gate_rechecks_review_after_program_checks(
     _write(repository, "tests/example.py", "value = 1\n")
     _commit(repository, "test: add example")
     primary = _git(repository, "rev-parse", "main")
+    task = _git(repository, "rev-parse", "HEAD")
     (repository.parent / "checks.log").write_text("", encoding="utf-8")
     monkeypatch.setenv(
         "DOCUMENTATION_INVALIDATE_REVIEW"
@@ -357,9 +420,49 @@ def test_full_merge_gate_rechecks_review_after_program_checks(
     assert "h2h code review:" in result.stderr
     assert _checks(repository) == ["run", "verify", "full", "verify"]
     assert _git(repository, "rev-parse", "main") == primary
-    assert _git(repository, "branch", "--show-current") == "docs/task"
-    assert not (repository / ".git/MERGE_HEAD").exists()
-    assert _git(repository, "status", "--porcelain") == ""
+    assert _git(repository, "rev-parse", "docs/task") == task
+    merge_head = repository / ".git/MERGE_HEAD"
+    admission = repository / ".git/h2h-merge-workflow.lock"
+    if invalidation == "receipt":
+        assert _git(repository, "branch", "--show-current") == "docs/task"
+        assert not merge_head.exists()
+        assert not admission.exists()
+        assert _git(repository, "status", "--porcelain") == ""
+        return
+
+    # A gate's staged change is external to the captured candidate. Preserve
+    # those bytes and the original workflow's admission instead of aborting it.
+    assert "Candidate changed outside this workflow" in result.stderr
+    assert _git(repository, "branch", "--show-current") == "main"
+    assert merge_head.read_text(encoding="ascii") == task + "\n"
+    staged = _run(repository, "git", "show", ":tests/gate-change.py")
+    assert staged.returncode == 0
+    assert staged.stdout == "changed = True\n"
+    assert (repository / "tests/gate-change.py").read_bytes() == b"changed = True\n"
+    index = _git(repository, "write-tree")
+    owner_bytes = (admission / "owner.json").read_bytes()
+    owner = json.loads(owner_bytes)
+    assert owner["repository"] == str(repository)
+    assert isinstance(owner["owner_pid"], int) and owner["owner_pid"] > 0
+    assert len(owner["token"]) == 64 and set(owner["token"]) <= set("0123456789abcdef")
+    identity = admission.stat()
+
+    blocked = _run(repository, "scripts/git-flow-merge.sh", "--cleanup-only")
+
+    assert blocked.returncode != 0
+    assert "admission is already held" in blocked.stderr
+    assert (admission.stat().st_dev, admission.stat().st_ino) == (
+        identity.st_dev,
+        identity.st_ino,
+    )
+    assert (admission / "owner.json").read_bytes() == owner_bytes
+    assert merge_head.read_text(encoding="ascii") == task + "\n"
+    assert _git(repository, "write-tree") == index
+    assert (repository / "tests/gate-change.py").read_bytes() == b"changed = True\n"
+    assert _git(repository, "branch", "--show-current") == "main"
+    assert _git(repository, "rev-parse", "main") == primary
+    assert _git(repository, "rev-parse", "docs/task") == task
+    assert _checks(repository) == ["run", "verify", "full", "verify"]
 
 
 def test_merge_uses_repository_python_when_path_python_is_unusable(
